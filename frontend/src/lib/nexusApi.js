@@ -8,15 +8,14 @@
  * https://help.sonatype.com/repomanager3/integrations/rest-and-integration-api/components-api
  *
  * CORS: Nexus must have "Allow CORS" enabled.
- * Admin UI → Security → Realms -or- System → API (older versions).
- * Alternatively add  nexus.scripts.allowCreation=true + cors config to nexus.properties.
+ * Admin UI → System → Capabilities → Create → CORS → set Allowed Origins to * or your frontend URL.
  */
 
 const BASE = (nexusUrl) => `${nexusUrl.replace(/\/$/, '')}/service/rest/v1/components`;
 
 /**
- * Core upload function.
- * Returns { status, statusText } on success, throws with a human-readable message on failure.
+ * Core upload function using XHR (fetch does not support upload progress events).
+ * Throws with a human-readable message on any non-2xx response.
  */
 async function nexusUpload({ nexusUrl, repo, username, password, formData, onProgress }) {
   const url = `${BASE(nexusUrl)}?repository=${encodeURIComponent(repo)}`;
@@ -25,9 +24,8 @@ async function nexusUpload({ nexusUrl, repo, username, password, formData, onPro
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
 
-    // Basic auth
     if (username) {
-      xhr.setRequestHeader('Authorization', 'Basic ' + btoa(`${username}:${password}`);
+      xhr.setRequestHeader('Authorization', 'Basic ' + btoa(`${username}:${password}`));
     }
 
     xhr.upload.onprogress = (e) => {
@@ -59,7 +57,6 @@ function parseNexusError(xhr) {
   if (status === 404) return 'Repository not found — check the repository name';
   if (status === 0)   return 'No response — Nexus may be unreachable or CORS is not enabled';
 
-  // Try to extract message from Nexus JSON or HTML body
   const body = xhr.responseText || '';
   try {
     const json = JSON.parse(body);
@@ -73,8 +70,7 @@ function parseNexusError(xhr) {
 
 // ---------------------------------------------------------------------------
 // Format-specific uploaders
-// All use POST /service/rest/v1/components?repository=<repo>
-// Field names are exactly what the Nexus API expects.
+// Field names are exactly what the Nexus REST API v1 expects per format.
 // ---------------------------------------------------------------------------
 
 export async function uploadMaven({ nexusUrl, repo, username, password, file, extra, onProgress }) {
@@ -111,9 +107,8 @@ export async function uploadPypi({ nexusUrl, repo, username, password, file, onP
 }
 
 /**
- * Docker: Nexus REST API v1 does not support Docker image upload via /components.
- * Docker images must be pushed via the Docker registry protocol (docker push).
- * This uploader informs the user of that constraint.
+ * Docker images cannot be uploaded via the browser REST API.
+ * They must be pushed using the Docker registry protocol.
  */
 export async function uploadDocker() {
   throw new Error(
