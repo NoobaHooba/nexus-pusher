@@ -1,10 +1,7 @@
-const axios = require('axios');
 const fs = require('fs');
 const FormData = require('form-data');
+const { nexusRequest } = require('../lib/nexusRequest');
 
-/**
- * Uploads a Helm chart (.tgz) to a Nexus Helm-hosted repo.
- */
 async function upload({ file, nexusUrl, repo, username, password }) {
   const form = new FormData();
   form.append('chart', fs.createReadStream(file.path), {
@@ -13,14 +10,14 @@ async function upload({ file, nexusUrl, repo, username, password }) {
   });
 
   const url = `${nexusUrl}/repository/${repo}/`;
-  const auth = username ? { username, password } : undefined;
-
-  const response = await axios.post(url, form, {
+  const response = await nexusRequest({
+    method: 'POST',
+    url,
+    data: form,
     headers: form.getHeaders(),
-    auth,
-    maxContentLength: Infinity,
-    maxBodyLength: Infinity,
+    auth: username ? { username, password } : undefined,
   });
+
   return { url, status: response.status };
 }
 

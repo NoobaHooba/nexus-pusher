@@ -1,12 +1,7 @@
-const axios = require('axios');
 const fs = require('fs');
-const FormData = require('form-data');
 const path = require('path');
+const { nexusRequest } = require('../lib/nexusRequest');
 
-/**
- * Uploads a Maven artifact (JAR/WAR/POM) to Nexus.
- * Expects extra: { groupId, artifactId, version, extension }
- */
 async function upload({ file, nexusUrl, repo, username, password, extra }) {
   const { groupId, artifactId, version, extension } = extra;
   if (!groupId || !artifactId || !version) {
@@ -17,15 +12,14 @@ async function upload({ file, nexusUrl, repo, username, password, extra }) {
   const uploadPath = `${groupPath}/${artifactId}/${version}/${artifactId}-${version}.${ext}`;
   const url = `${nexusUrl}/repository/${repo}/${uploadPath}`;
 
-  const fileStream = fs.createReadStream(file.path);
-  const auth = username ? { username, password } : undefined;
-
-  const response = await axios.put(url, fileStream, {
+  const response = await nexusRequest({
+    method: 'PUT',
+    url,
+    data: fs.createReadStream(file.path),
     headers: { 'Content-Type': 'application/octet-stream' },
-    auth,
-    maxContentLength: Infinity,
-    maxBodyLength: Infinity,
+    auth: username ? { username, password } : undefined,
   });
+
   return { url, status: response.status };
 }
 

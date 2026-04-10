@@ -1,15 +1,11 @@
-const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { nexusRequest } = require('../lib/nexusRequest');
 
-/**
- * Publishes an NPM tarball (.tgz) to Nexus npm-hosted repo via the Nexus REST API.
- */
 async function upload({ file, nexusUrl, repo, username, password }) {
   const tarball = fs.readFileSync(file.path);
   const b64 = tarball.toString('base64');
 
-  // Try to parse package name/version from filename: name-version.tgz
   const base = path.basename(file.originalname, '.tgz');
   const lastDash = base.lastIndexOf('-');
   const name = lastDash > 0 ? base.substring(0, lastDash) : base;
@@ -34,12 +30,15 @@ async function upload({ file, nexusUrl, repo, username, password }) {
     },
   };
 
-  const auth = username ? { username, password } : undefined;
   const url = `${nexusUrl}/repository/${repo}/${name}`;
-  const response = await axios.put(url, body, {
+  const response = await nexusRequest({
+    method: 'PUT',
+    url,
+    data: body,
     headers: { 'Content-Type': 'application/json' },
-    auth,
+    auth: username ? { username, password } : undefined,
   });
+
   return { url, status: response.status };
 }
 

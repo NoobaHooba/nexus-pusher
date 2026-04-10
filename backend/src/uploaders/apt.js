@@ -1,23 +1,20 @@
-const axios = require('axios');
 const fs = require('fs');
+const { nexusRequest } = require('../lib/nexusRequest');
 
-/**
- * Uploads a Debian package (.deb) to a Nexus Apt-hosted repo.
- */
 async function upload({ file, nexusUrl, repo, username, password }) {
   const url = `${nexusUrl}/repository/${repo}/`;
-  const auth = username ? { username, password } : undefined;
 
-  const fileStream = fs.createReadStream(file.path);
-  const response = await axios.post(url, fileStream, {
+  const response = await nexusRequest({
+    method: 'POST',
+    url,
+    data: fs.createReadStream(file.path),
     headers: {
       'Content-Type': 'application/vnd.debian.binary-package',
       'Content-Disposition': `attachment; filename="${file.originalname}"`,
     },
-    auth,
-    maxContentLength: Infinity,
-    maxBodyLength: Infinity,
+    auth: username ? { username, password } : undefined,
   });
+
   return { url, status: response.status };
 }
 

@@ -1,23 +1,18 @@
-const axios = require('axios');
 const fs = require('fs');
-const path = require('path');
+const { nexusRequest } = require('../lib/nexusRequest');
 
-/**
- * Uploads an RPM package to a Nexus Yum-hosted repo.
- */
 async function upload({ file, nexusUrl, repo, username, password, extra }) {
   const directory = extra.directory || '/';
-  const filename = file.originalname;
-  const url = `${nexusUrl}/repository/${repo}${directory}${filename}`;
-  const auth = username ? { username, password } : undefined;
+  const url = `${nexusUrl}/repository/${repo}${directory}${file.originalname}`;
 
-  const fileStream = fs.createReadStream(file.path);
-  const response = await axios.put(url, fileStream, {
+  const response = await nexusRequest({
+    method: 'PUT',
+    url,
+    data: fs.createReadStream(file.path),
     headers: { 'Content-Type': 'application/x-rpm' },
-    auth,
-    maxContentLength: Infinity,
-    maxBodyLength: Infinity,
+    auth: username ? { username, password } : undefined,
   });
+
   return { url, status: response.status };
 }
 

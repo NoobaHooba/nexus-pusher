@@ -1,11 +1,7 @@
-const axios = require('axios');
 const fs = require('fs');
 const FormData = require('form-data');
-const path = require('path');
+const { nexusRequest } = require('../lib/nexusRequest');
 
-/**
- * Uploads a Python package (.whl or .tar.gz) to a Nexus PyPI-hosted repo.
- */
 async function upload({ file, nexusUrl, repo, username, password }) {
   const form = new FormData();
   form.append(':action', 'file_upload');
@@ -16,14 +12,14 @@ async function upload({ file, nexusUrl, repo, username, password }) {
   });
 
   const url = `${nexusUrl}/repository/${repo}/`;
-  const auth = username ? { username, password } : undefined;
-
-  const response = await axios.post(url, form, {
+  const response = await nexusRequest({
+    method: 'POST',
+    url,
+    data: form,
     headers: form.getHeaders(),
-    auth,
-    maxContentLength: Infinity,
-    maxBodyLength: Infinity,
+    auth: username ? { username, password } : undefined,
   });
+
   return { url, status: response.status };
 }
 

@@ -1,22 +1,18 @@
-const axios = require('axios');
 const fs = require('fs');
+const { nexusRequest } = require('../lib/nexusRequest');
 
-/**
- * Uploads any file to a Nexus Raw-hosted repo.
- * Expects extra: { directory } — the path in the repo to store the file.
- */
 async function upload({ file, nexusUrl, repo, username, password, extra }) {
   const directory = extra.directory ? `/${extra.directory.replace(/^\//, '')}` : '';
   const url = `${nexusUrl}/repository/${repo}${directory}/${file.originalname}`;
-  const auth = username ? { username, password } : undefined;
 
-  const fileStream = fs.createReadStream(file.path);
-  const response = await axios.put(url, fileStream, {
+  const response = await nexusRequest({
+    method: 'PUT',
+    url,
+    data: fs.createReadStream(file.path),
     headers: { 'Content-Type': 'application/octet-stream' },
-    auth,
-    maxContentLength: Infinity,
-    maxBodyLength: Infinity,
+    auth: username ? { username, password } : undefined,
   });
+
   return { url, status: response.status };
 }
 
