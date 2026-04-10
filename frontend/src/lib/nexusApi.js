@@ -1,21 +1,23 @@
 /**
  * nexusApi.js
- * Calls the Nexus Repository Manager REST API v1 directly from the browser.
+ * Calls nginx (which proxies to Nexus) using the REST API v1 components endpoint.
  * Endpoint: POST /service/rest/v1/components?repository=<repo>
- *
- * All formats use multipart/form-data with format-specific field names
- * as documented at:
- * https://help.sonatype.com/repomanager3/integrations/rest-and-integration-api/components-api
- *
- * CORS: Nexus must have "Allow CORS" enabled.
- * Admin UI → System → Capabilities → Create → CORS → set Allowed Origins to * or your frontend URL.
  */
 
 const BASE = (nexusUrl) => `${nexusUrl.replace(/\/$/, '')}/service/rest/v1/components`;
 
 /**
- * Core upload function using XHR (fetch does not support upload progress events).
- * Throws with a human-readable message on any non-2xx response.
+ * UTF-8 safe base64 encode for Basic Auth.
+ * Plain btoa() throws on passwords that contain non-ASCII characters.
+ */
+function toBase64(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+
+/**
+ * Core upload via XHR (fetch has no upload progress API).
+ * withCredentials must be true when the CORS response includes
+ * Access-Control-Allow-Credentials: true.
  */
 async function nexusUpload({ nexusUrl, repo, username, password, formData, onProgress }) {
   const url = `${BASE(nexusUrl)}?repository=${encodeURIComponent(repo)}`;
@@ -24,8 +26,11 @@ async function nexusUpload({ nexusUrl, repo, username, password, formData, onPro
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
 
+    // Required when the server responds with Access-Control-Allow-Credentials: true
+    xhr.withCredentials = true;
+
     if (username) {
-      xhr.setRequestHeader('Authorization', 'Basic ' + btoa(`${username}:${password}`));
+      xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password}`));
     }
 
     xhr.upload.onprogress = (e) => {
@@ -42,9 +47,11 @@ async function nexusUpload({ nexusUrl, repo, username, password, formData, onPro
       }
     };
 
-    xhr.onerror = () => reject(new Error('Network error — cannot reach Nexus. Check the URL and that CORS is enabled.'));
+    xhr.onerror = () => reject(new Error(
+      'Network error — cannot reach the proxy. Check the nginx URL in Settings and that the container is running.'
+    ));
     xhr.ontimeout = () => reject(new Error('Request timed out'));
-    xhr.timeout = 0; // no timeout for large files
+    xhr.timeout = 0;
 
     xhr.send(formData);
   });
@@ -55,7 +62,7 @@ function parseNexusError(xhr) {
   if (status === 401) return 'Authentication failed — check username/password in Settings';
   if (status === 403) return 'Permission denied — user does not have deploy rights on this repository';
   if (status === 404) return 'Repository not found — check the repository name';
-  if (status === 0)   return 'No response — Nexus may be unreachable or CORS is not enabled';
+  if (status === 0)   return 'No response — nginx proxy may be unreachable or CORS is misconfigured';
 
   const body = xhr.responseText || '';
   try {
@@ -67,11 +74,6 @@ function parseNexusError(xhr) {
   if (titleMatch) return `Nexus: ${titleMatch[1].trim()}`;
   return `Nexus returned HTTP ${status}`;
 }
-
-// ---------------------------------------------------------------------------
-// Format-specific uploaders
-// Field names are exactly what the Nexus REST API v1 expects per format.
-// ---------------------------------------------------------------------------
 
 export async function uploadMaven({ nexusUrl, repo, username, password, file, extra, onProgress }) {
   const { groupId, artifactId, version, extension } = extra;
@@ -106,10 +108,6 @@ export async function uploadPypi({ nexusUrl, repo, username, password, file, onP
   return nexusUpload({ nexusUrl, repo, username, password, formData: fd, onProgress });
 }
 
-/**
- * Docker images cannot be uploaded via the browser REST API.
- * They must be pushed using the Docker registry protocol.
- */
 export async function uploadDocker() {
   throw new Error(
     'Docker images cannot be uploaded via the browser API. ' +
