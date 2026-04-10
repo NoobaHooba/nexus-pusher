@@ -10,46 +10,44 @@ import { useUpload } from './hooks/useUpload';
 
 const NEXUS_LOGO = 'https://lh3.googleusercontent.com/aida/ADBb0uhJAgGgzva0ScflAODe8l4LMeZezCQyPlBcHfUAH-CAxD_MYx7wvT5O-ITn9Abyf95i_KO-P8Bncj9y9pRJ23POSAynBfpNXXiBJGDd9Z5h9G1ApNqrk7ui-cSUcJeebjx_V-WcR0LuUhaiFKy4Kw0IyjBU0lTYciWLKOpJJrgl2YrNM_jWcLJaDgIyMbsCsproxqG7eN_j4owNPpSb2t9u3IuRwR4tVYZOCiy6RdLlYI3uuhzHUK0yeYOt7-aWN5NOTGHDCCBs4Q';
 
+const SETTINGS_KEY = 'nexus-pusher-settings';
+const REPO_NAMES_KEY = 'nexus-pusher-repo-names';
+
+function loadFromStorage(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) || fallback; }
+  catch { return fallback; }
+}
+
 export default function App() {
   const [activeRepo, setActiveRepo] = useState('npm');
   const [showSettings, setShowSettings] = useState(false);
-  // Nexus server connection (URL + credentials only — no "default repo")
-  const [settings, setSettings] = useState({ nexusUrl: '', username: '', password: '' });
-  // Each repo type stores its own Nexus repository name
-  const [repoNames, setRepoNames] = useState({});
+  const [settings, setSettings] = useState(() =>
+    loadFromStorage(SETTINGS_KEY, { nexusUrl: '', username: '', password: '' })
+  );
+  const [repoNames, setRepoNames] = useState(() =>
+    loadFromStorage(REPO_NAMES_KEY, {})
+  );
   const [extraFields, setExtraFields] = useState({});
 
   const repoName = repoNames[activeRepo] || '';
-  const { queue, addFiles, clearCompleted, retryItem, totalSize, estimatedTime } = useUpload(settings, activeRepo, repoName, extraFields);
+  const { queue, addFiles, clearCompleted, retryItem, totalSize, estimatedTime } =
+    useUpload(settings, activeRepo, repoName, extraFields);
 
+  // Show settings modal automatically on first visit
   useEffect(() => {
-    fetch('/api/settings')
-      .then(r => r.json())
-      .then(data => {
-        if (data.nexusUrl) setSettings({ nexusUrl: data.nexusUrl, username: data.username || '', password: data.password || '' });
-        if (data.repoNames) setRepoNames(data.repoNames);
-      })
-      .catch(() => {});
+    if (!settings.nexusUrl) setShowSettings(true);
   }, []);
 
-  const handleSaveSettings = async (s) => {
-    const merged = { ...s, repoNames };
-    setSettings({ nexusUrl: s.nexusUrl, username: s.username, password: s.password });
-    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(merged) });
+  const handleSaveSettings = (s) => {
+    setSettings(s);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
     setShowSettings(false);
   };
 
   const handleRepoNameChange = (type, name) => {
     const updated = { ...repoNames, [type]: name };
     setRepoNames(updated);
-    // Persist in background
-    fetch('/api/settings').then(r => r.json()).then(data => {
-      fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...data, repoNames: updated }),
-      });
-    }).catch(() => {});
+    localStorage.setItem(REPO_NAMES_KEY, JSON.stringify(updated));
   };
 
   return (
@@ -74,18 +72,33 @@ export default function App() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
           <div className="lg:col-span-7 flex flex-col gap-10">
-            <UploadZone onFiles={addFiles} repoType={activeRepo} extraFields={extraFields} onExtraChange={setExtraFields} />
-            <UploadSummary totalSize={totalSize} estimatedTime={estimatedTime} activeFormat={activeRepo.toUpperCase()} />
+            <UploadZone
+              onFiles={addFiles}
+              repoType={activeRepo}
+              extraFields={extraFields}
+              onExtraChange={setExtraFields}
+            />
+            <UploadSummary
+              totalSize={totalSize}
+              estimatedTime={estimatedTime}
+              activeFormat={activeRepo.toUpperCase()}
+            />
           </div>
           <div className="lg:col-span-5">
-            <UploadQueue queue={queue} onClearCompleted={clearCompleted} onRetry={retryItem} />
+            <UploadQueue
+              queue={queue}
+              onClearCompleted={clearCompleted}
+              onRetry={retryItem}
+            />
           </div>
         </div>
 
         <footer className="mt-auto py-10 border-t border-slate-100 flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <img src={NEXUS_LOGO} alt="Footer Logo" className="w-5 h-5 grayscale opacity-20" />
-            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-300">&copy; {new Date().getFullYear()} Nexus Pusher. Architectural Precision.</p>
+            <img src={NEXUS_LOGO} alt="" className="w-5 h-5 grayscale opacity-20" />
+            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-300">
+              &copy; {new Date().getFullYear()} Nexus Pusher. Architectural Precision.
+            </p>
           </div>
           <div className="flex gap-10">
             <a href="#" className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 hover:text-accent transition-colors">Security</a>
@@ -95,7 +108,13 @@ export default function App() {
         </footer>
       </main>
 
-      {showSettings && <SettingsModal settings={settings} onSave={handleSaveSettings} onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsModal
+          settings={settings}
+          onSave={handleSaveSettings}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 }

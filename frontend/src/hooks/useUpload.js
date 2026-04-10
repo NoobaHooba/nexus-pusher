@@ -1,52 +1,65 @@
 import { useState, useCallback, useRef } from 'react';
-import axios from 'axios';
+import { UPLOADERS } from '../lib/nexusApi';
 
 let idCounter = 0;
 const genId = () => ++idCounter;
 
 export function useUpload(settings, repoType, repoName, extraFields) {
   const [queue, setQueue] = useState([]);
-  const activeRef = useRef(false);
+  const processingRef = useRef(false);
 
   const totalSize = queue.reduce((acc, i) => acc + (i.size || 0), 0);
-  const pendingSize = queue.filter(i => i.status === 'pending').reduce((acc, i) => acc + (i.size || 0), 0);
+  const pendingSize = queue
+    .filter(i => i.status === 'pending')
+    .reduce((acc, i) => acc + (i.size || 0), 0);
   const estimatedTime = pendingSize > 0 ? pendingSize / (5 * 1024 * 1024) : 0;
 
   const updateItem = (id, patch) =>
     setQueue(q => q.map(i => (i.id === id ? { ...i, ...patch } : i)));
 
-  const processQueue = useCallback(async (newQueue) => {
-    if (activeRef.current) return;
-    activeRef.current = true;
+  const processQueue = useCallback(async (currentQueue) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
 
-    for (const item of newQueue) {
+    for (const item of currentQueue) {
       if (item.status !== 'pending') continue;
+
+      // Guard: require nexusUrl and repoName before trying
+      if (!item.settings.nexusUrl) {
+        updateItem(item.id, { status: 'error', statusText: 'Nexus URL not set — open Settings' });
+        continue;
+      }
+      if (!item.repoName) {
+        updateItem(item.id, { status: 'error', statusText: 'Repository name not set — enter it below the type selector' });
+        continue;
+      }
 
       updateItem(item.id, { status: 'uploading', progress: 0 });
 
-      const formData = new FormData();
-      formData.append('files', item.file);
-      formData.append('nexusUrl', settings.nexusUrl || '');
-      formData.append('repo', item.repoName || '');  // per-item snapshot of repo name at queue time
-      formData.append('username', settings.username || '');
-      formData.append('password', settings.password || '');
-      Object.entries(item.extraFields || {}).forEach(([k, v]) => formData.append(k, v));
+      const uploader = UPLOADERS[item.repoType];
+      if (!uploader) {
+        updateItem(item.id, { status: 'error', statusText: `Unknown repo type: ${item.repoType}` });
+        continue;
+      }
 
       try {
-        await axios.post(`/api/upload/${item.repoType}`, formData, {
-          onUploadProgress: (e) => {
-            if (e.total) updateItem(item.id, { progress: Math.round((e.loaded / e.total) * 100) });
-          },
+        await uploader({
+          nexusUrl: item.settings.nexusUrl,
+          repo: item.repoName,
+          username: item.settings.username,
+          password: item.settings.password,
+          file: item.file,
+          extra: item.extraFields,
+          onProgress: (pct) => updateItem(item.id, { progress: pct }),
         });
         updateItem(item.id, { status: 'done', progress: 100, statusText: 'Successful' });
       } catch (err) {
-        const msg = err.response?.data?.error || err.message || 'Upload failed';
-        updateItem(item.id, { status: 'error', statusText: msg });
+        updateItem(item.id, { status: 'error', statusText: err.message });
       }
     }
 
-    activeRef.current = false;
-  }, [settings]);
+    processingRef.current = false;
+  }, []);
 
   const addFiles = useCallback((files) => {
     const newItems = files.map(f => ({
@@ -58,7 +71,8 @@ export function useUpload(settings, repoType, repoName, extraFields) {
       progress: 0,
       statusText: 'Waiting',
       repoType,
-      repoName,             // snapshot repo name at queue time
+      repoName,
+      settings: { ...settings },
       extraFields: { ...extraFields },
     }));
     setQueue(q => {
@@ -66,7 +80,7 @@ export function useUpload(settings, repoType, repoName, extraFields) {
       setTimeout(() => processQueue(updated), 0);
       return updated;
     });
-  }, [processQueue, repoType, repoName, extraFields]);
+  }, [processQueue, repoType, repoName, settings, extraFields]);
 
   const clearCompleted = useCallback(() => {
     setQueue(q => q.filter(i => i.status !== 'done'));
@@ -74,7 +88,9 @@ export function useUpload(settings, repoType, repoName, extraFields) {
 
   const retryItem = useCallback((id) => {
     setQueue(q => {
-      const updated = q.map(i => i.id === id ? { ...i, status: 'pending', statusText: 'Waiting', progress: 0 } : i);
+      const updated = q.map(i =>
+        i.id === id ? { ...i, status: 'pending', statusText: 'Waiting', progress: 0 } : i
+      );
       setTimeout(() => processQueue(updated), 0);
       return updated;
     });
