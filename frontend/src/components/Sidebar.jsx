@@ -1,0 +1,49 @@
+import React from 'react';
+
+export default function Sidebar({ nexusLogo, onOpenSettings }) {
+  return (
+    <aside className="h-screen w-64 fixed left-0 top-0 z-40 bg-white border-r border-slate-100 flex flex-col p-6 gap-2">
+      <div className="flex items-center gap-3 mb-10">
+        <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
+          <img src={nexusLogo} alt="Nexus Logo" className="w-6 h-6 object-contain" />
+        </div>
+        <div>
+          <h1 className="text-primary font-bold text-lg leading-none">Nexus Pusher</h1>
+          <p className="font-manrope text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400 mt-1">Repository Core</p>
+        </div>
+      </div>
+      <nav className="flex-1 flex flex-col gap-2">
+        <a href="#" className="flex items-center gap-3 px-4 py-3 text-on-surface-variant font-medium text-sm hover:bg-slate-50 transition-all rounded-lg">
+          <span className="material-symbols-outlined text-[20px]">dashboard</span>
+          <span>Overview</span>
+        </a>
+        <a href="#" className="flex items-center gap-3 px-4 py-3 text-primary font-bold text-sm bg-accent-dim/50 rounded-lg transition-all">
+          <span className="material-symbols-outlined text-[20px] text-accent">rocket_launch</span>
+          <span>Pushes</span>
+        </a>
+        <a href="#" className="flex items-center gap-3 px-4 py-3 text-on-surface-variant font-medium text-sm hover:bg-slate-50 transition-all rounded-lg">
+          <span className="material-symbols-outlined text-[20px]">monitoring</span>
+          <span>Metrics</span>
+        </a>
+        <a href="#" className="flex items-center gap-3 px-4 py-3 text-on-surface-variant font-medium text-sm hover:bg-slate-50 transition-all rounded-lg">
+          <span className="material-symbols-outlined text-[20px]">group</span>
+          <span>LDAP group</span>
+        </a>
+      </nav>
+      <div className="mt-auto flex flex-col gap-2 border-t border-slate-100 pt-6">
+        <button onClick={onOpenSettings} className="flex items-center gap-3 px-4 py-2 text-on-surface-variant text-sm font-medium hover:text-primary transition-colors">
+          <span className="material-symbols-outlined text-[18px]">settings</span>
+          <span>Settings</span>
+        </button>
+        <a href="#" className="flex items-center gap-3 px-4 py-2 text-on-surface-variant text-sm font-medium hover:text-primary transition-colors">
+          <span className="material-symbols-outlined text-[18px]">help</span>
+          <span>Support</span>
+        </a>
+        <a href="#" className="flex items-center gap-3 px-4 py-2 text-on-surface-variant text-sm font-medium hover:text-primary transition-colors">
+          <span className="material-symbols-outlined text-[18px]">description</span>
+          <span>Documentation</span>
+        </a>
+      </div>
+    </aside>
+  );
+}
