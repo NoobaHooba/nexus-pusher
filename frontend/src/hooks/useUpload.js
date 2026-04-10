@@ -4,12 +4,11 @@ import axios from 'axios';
 let idCounter = 0;
 const genId = () => ++idCounter;
 
-export function useUpload(settings, repoType, extraFields) {
+export function useUpload(settings, repoType, repoName, extraFields) {
   const [queue, setQueue] = useState([]);
   const activeRef = useRef(false);
 
   const totalSize = queue.reduce((acc, i) => acc + (i.size || 0), 0);
-  // Assume ~5 MB/s upload speed for estimation
   const pendingSize = queue.filter(i => i.status === 'pending').reduce((acc, i) => acc + (i.size || 0), 0);
   const estimatedTime = pendingSize > 0 ? pendingSize / (5 * 1024 * 1024) : 0;
 
@@ -20,8 +19,7 @@ export function useUpload(settings, repoType, extraFields) {
     if (activeRef.current) return;
     activeRef.current = true;
 
-    let current = newQueue;
-    for (const item of current) {
+    for (const item of newQueue) {
       if (item.status !== 'pending') continue;
 
       updateItem(item.id, { status: 'uploading', progress: 0 });
@@ -29,17 +27,15 @@ export function useUpload(settings, repoType, extraFields) {
       const formData = new FormData();
       formData.append('files', item.file);
       formData.append('nexusUrl', settings.nexusUrl || '');
-      formData.append('repo', settings.repo || '');
+      formData.append('repo', item.repoName || '');  // per-item snapshot of repo name at queue time
       formData.append('username', settings.username || '');
       formData.append('password', settings.password || '');
-      Object.entries(extraFields || {}).forEach(([k, v]) => formData.append(k, v));
+      Object.entries(item.extraFields || {}).forEach(([k, v]) => formData.append(k, v));
 
       try {
-        await axios.post(`/api/upload/${repoType}`, formData, {
+        await axios.post(`/api/upload/${item.repoType}`, formData, {
           onUploadProgress: (e) => {
-            if (e.total) {
-              updateItem(item.id, { progress: Math.round((e.loaded / e.total) * 100) });
-            }
+            if (e.total) updateItem(item.id, { progress: Math.round((e.loaded / e.total) * 100) });
           },
         });
         updateItem(item.id, { status: 'done', progress: 100, statusText: 'Successful' });
@@ -50,7 +46,7 @@ export function useUpload(settings, repoType, extraFields) {
     }
 
     activeRef.current = false;
-  }, [settings, repoType, extraFields]);
+  }, [settings]);
 
   const addFiles = useCallback((files) => {
     const newItems = files.map(f => ({
@@ -61,13 +57,16 @@ export function useUpload(settings, repoType, extraFields) {
       status: 'pending',
       progress: 0,
       statusText: 'Waiting',
+      repoType,
+      repoName,             // snapshot repo name at queue time
+      extraFields: { ...extraFields },
     }));
     setQueue(q => {
       const updated = [...q, ...newItems];
       setTimeout(() => processQueue(updated), 0);
       return updated;
     });
-  }, [processQueue]);
+  }, [processQueue, repoType, repoName, extraFields]);
 
   const clearCompleted = useCallback(() => {
     setQueue(q => q.filter(i => i.status !== 'done'));

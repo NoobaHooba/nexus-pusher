@@ -13,21 +13,43 @@ const NEXUS_LOGO = 'https://lh3.googleusercontent.com/aida/ADBb0uhJAgGgzva0ScflA
 export default function App() {
   const [activeRepo, setActiveRepo] = useState('npm');
   const [showSettings, setShowSettings] = useState(false);
-  const [settings, setSettings] = useState({ nexusUrl: '', repo: '', username: '', password: '' });
+  // Nexus server connection (URL + credentials only — no "default repo")
+  const [settings, setSettings] = useState({ nexusUrl: '', username: '', password: '' });
+  // Each repo type stores its own Nexus repository name
+  const [repoNames, setRepoNames] = useState({});
   const [extraFields, setExtraFields] = useState({});
-  const { queue, addFiles, clearCompleted, retryItem, totalSize, estimatedTime } = useUpload(settings, activeRepo, extraFields);
+
+  const repoName = repoNames[activeRepo] || '';
+  const { queue, addFiles, clearCompleted, retryItem, totalSize, estimatedTime } = useUpload(settings, activeRepo, repoName, extraFields);
 
   useEffect(() => {
     fetch('/api/settings')
       .then(r => r.json())
-      .then(data => { if (data.nexusUrl) setSettings(data); })
+      .then(data => {
+        if (data.nexusUrl) setSettings({ nexusUrl: data.nexusUrl, username: data.username || '', password: data.password || '' });
+        if (data.repoNames) setRepoNames(data.repoNames);
+      })
       .catch(() => {});
   }, []);
 
   const handleSaveSettings = async (s) => {
-    setSettings(s);
-    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s) });
+    const merged = { ...s, repoNames };
+    setSettings({ nexusUrl: s.nexusUrl, username: s.username, password: s.password });
+    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(merged) });
     setShowSettings(false);
+  };
+
+  const handleRepoNameChange = (type, name) => {
+    const updated = { ...repoNames, [type]: name };
+    setRepoNames(updated);
+    // Persist in background
+    fetch('/api/settings').then(r => r.json()).then(data => {
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...data, repoNames: updated }),
+      });
+    }).catch(() => {});
   };
 
   return (
@@ -43,7 +65,12 @@ export default function App() {
           </p>
         </section>
 
-        <RepoSelector active={activeRepo} onChange={setActiveRepo} />
+        <RepoSelector
+          active={activeRepo}
+          onChange={setActiveRepo}
+          repoNames={repoNames}
+          onRepoNameChange={handleRepoNameChange}
+        />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
           <div className="lg:col-span-7 flex flex-col gap-10">

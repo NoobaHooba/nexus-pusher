@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
 export default function SettingsModal({ settings, onSave, onClose }) {
-  const [form, setForm] = useState({ nexusUrl: '', repo: '', username: '', password: '', ...settings });
+  const [form, setForm] = useState({ nexusUrl: '', username: '', password: '', ...settings });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   return (
@@ -13,19 +13,20 @@ export default function SettingsModal({ settings, onSave, onClose }) {
             <span className="material-symbols-outlined text-slate-400">close</span>
           </button>
         </div>
-        <p className="text-sm text-on-surface-variant">Configure your local Nexus server. These settings will be saved and pre-filled for all uploads.</p>
+        <p className="text-sm text-on-surface-variant">
+          Configure your local Nexus server URL and credentials. Repository names are set per format in the upload panel.
+        </p>
         <div className="flex flex-col gap-4">
           {[
-            { key: 'nexusUrl',  label: 'Nexus URL',        placeholder: 'http://localhost:8081', type: 'text' },
-            { key: 'repo',      label: 'Default Repo Name', placeholder: 'my-repo',              type: 'text' },
-            { key: 'username',  label: 'Username',          placeholder: 'admin',                type: 'text' },
-            { key: 'password',  label: 'Password',          placeholder: '••••••••',             type: 'password' },
+            { key: 'nexusUrl',  label: 'Nexus URL',  placeholder: 'http://localhost:8081', type: 'text' },
+            { key: 'username',  label: 'Username',   placeholder: 'admin',                type: 'text' },
+            { key: 'password',  label: 'Password',   placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', type: 'password' },
           ].map(({ key, label, placeholder, type }) => (
             <div key={key} className="flex flex-col gap-1.5">
               <label className="text-xs font-semibold text-on-surface-variant">{label}</label>
               <input
                 type={type}
-                value={form[key]}
+                value={form[key] || ''}
                 onChange={e => set(key, e.target.value)}
                 placeholder={placeholder}
                 className="px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-primary focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all"
