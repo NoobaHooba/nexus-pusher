@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
 function toBase64(str) {
-  return btoa(unescape(encodeURIComponent(str))).replace(/=+$/, '');
+  return btoa(unescape(encodeURIComponent(str))).replace(/=/g, '%3D');
 }
 
 function buildTokenParam(username, password) {

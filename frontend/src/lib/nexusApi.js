@@ -1,16 +1,20 @@
 /**
  * nexusApi.js
  *
- * Auth strategy: send ?_t=<base64(user:pass)> with padding stripped.
+ * Auth strategy: send ?_t=<base64(user:pass)> with '=' padding encoded as '%3D'.
  * Nginx prepends 'Basic ' and sets Authorization header.
  *
- * base64 padding '=' is the query-string key=value separator, so
- * Nginx's $arg__t truncates there. Strip trailing '=' before sending —
- * base64 padding is optional and all standard decoders accept unpadded tokens.
+ * Why encode '=' as '%3D':
+ * - Raw '=' in query string is the key=value separator — Nginx's $arg__t truncates there
+ * - Stripping '=' causes Nexus to reject the token (Nexus requires padded base64)
+ * - Browsers don't re-encode already percent-encoded chars, so '%3D' survives intact
+ * - Nginx's $arg__t automatically URL-decodes '%3D' back to '='
+ * - Nexus receives a correctly padded token and accepts it
  */
 
 function toBase64(str) {
-  return btoa(unescape(encodeURIComponent(str))).replace(/=+$/, '');
+  // Encode '=' padding as '%3D' so it survives as a query param value
+  return btoa(unescape(encodeURIComponent(str))).replace(/=/g, '%3D');
 }
 
 function buildTokenParam(username, password) {
