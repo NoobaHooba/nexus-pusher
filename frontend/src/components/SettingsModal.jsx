@@ -6,27 +6,21 @@ function toBase64(str) {
 
 /**
  * Validates credentials through the dedicated validation port (8082).
- * That port uses Access-Control-Allow-Origin: * (no credentials header)
- * so the browser never caches a Basic Auth session for that origin.
- * Wrong credentials reliably return 401.
+ *
+ * We always target http://localhost:8082 for validation regardless of
+ * what the user typed in the Proxy URL field. This means:
+ * - The user can type http://localhost:8080 (proxy) or even an IP, and
+ *   validation still works correctly.
+ * - The browser has no cached Basic Auth session for localhost:8082
+ *   (wildcard ACAO, no Allow-Credentials on that Nginx block), so the
+ *   Authorization header set here is always the only one Nexus sees.
  */
-async function validateCredentials({ nexusUrl, username, password }) {
-  let validationUrl;
-  try {
-    const parsed = new URL(nexusUrl.replace(/\/$/, ''));
-    parsed.port = '8082';
-    validationUrl = parsed.toString();
-  } catch {
-    return { ok: false, message: 'Invalid Nexus URL — must start with http://' };
-  }
-
-  const url = `${validationUrl}/service/rest/v1/repositories`;
+async function validateCredentials({ username, password }) {
+  const url = 'http://localhost:8082/service/rest/v1/repositories';
 
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url);
-    // No withCredentials — wildcard ACAO on 8082 means the browser will
-    // never cache an auth session for this origin.
     if (username) {
       xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password || ''}`));
     }
@@ -35,19 +29,19 @@ async function validateCredentials({ nexusUrl, username, password }) {
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve({ ok: true, message: 'Connection successful' });
       } else if (xhr.status === 401) {
-        resolve({ ok: false, message: 'Authentication failed — username or password is incorrect' });
+        resolve({ ok: false, message: 'Authentication failed \u2014 username or password is incorrect' });
       } else if (xhr.status === 403) {
         resolve({ ok: false, message: 'Connected, but this user does not have permission to query Nexus' });
       } else if (xhr.status === 404) {
-        resolve({ ok: false, message: 'Reached the proxy but Nexus REST API path was not found — is Nexus running?' });
+        resolve({ ok: false, message: 'Reached the proxy but Nexus REST API was not found \u2014 is Nexus running?' });
       } else {
-        resolve({ ok: false, message: `Connection failed — HTTP ${xhr.status}` });
+        resolve({ ok: false, message: `Connection failed \u2014 HTTP ${xhr.status}` });
       }
     };
 
     xhr.onerror = () => resolve({
       ok: false,
-      message: 'CORS or network error — check that port 8082 is exposed and the proxy container is running',
+      message: 'CORS or network error \u2014 is the proxy container running with port 8082 exposed?',
     });
     xhr.ontimeout = () => resolve({ ok: false, message: 'Connection test timed out after 10 s' });
     xhr.timeout = 10000;
@@ -56,7 +50,7 @@ async function validateCredentials({ nexusUrl, username, password }) {
 }
 
 export default function SettingsModal({ settings, onSave, onClose }) {
-  const [form, setForm] = useState({ nexusUrl: '', username: '', password: '', ...settings });
+  const [form, setForm] = useState({ nexusUrl: '', username: '', password: '', defaultRepo: '', ...settings });
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState(null);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -65,7 +59,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     setStatus(null);
 
     if (!form.nexusUrl?.trim()) {
-      setStatus({ ok: false, message: 'Nexus URL is required' });
+      setStatus({ ok: false, message: 'Proxy URL is required' });
       return;
     }
 
@@ -79,6 +73,34 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     }
   };
 
+  const fields = [
+    {
+      key: 'nexusUrl',
+      label: 'Proxy URL',
+      placeholder: 'http://localhost:8080',
+      type: 'text',
+      hint: 'The nginx proxy address \u2014 NOT the Nexus direct port (8081). Default: http://localhost:8080',
+    },
+    {
+      key: 'username',
+      label: 'Username',
+      placeholder: 'admin',
+      type: 'text',
+    },
+    {
+      key: 'password',
+      label: 'Password',
+      placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',
+      type: 'password',
+    },
+    {
+      key: 'defaultRepo',
+      label: 'Default Repository',
+      placeholder: 'maven-releases',
+      type: 'text',
+    },
+  ];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 flex flex-col gap-6">
@@ -89,14 +111,10 @@ export default function SettingsModal({ settings, onSave, onClose }) {
           </button>
         </div>
         <p className="text-sm text-on-surface-variant">
-          Configure your proxy URL and credentials. When you save, the app will test the connection first and only save if authentication succeeds.
+          Configure your proxy URL and credentials. Credentials are tested against Nexus before saving.
         </p>
         <div className="flex flex-col gap-4">
-          {[
-            { key: 'nexusUrl',  label: 'Proxy URL',  placeholder: 'http://localhost:8080', type: 'text' },
-            { key: 'username',  label: 'Username',   placeholder: 'admin',                type: 'text' },
-            { key: 'password',  label: 'Password',   placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', type: 'password' },
-          ].map(({ key, label, placeholder, type }) => (
+          {fields.map(({ key, label, placeholder, type, hint }) => (
             <div key={key} className="flex flex-col gap-1.5">
               <label className="text-xs font-semibold text-on-surface-variant">{label}</label>
               <input
@@ -106,6 +124,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 placeholder={placeholder}
                 className="px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-primary focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all"
               />
+              {hint && <p className="text-xs text-slate-400">{hint}</p>}
             </div>
           ))}
         </div>
