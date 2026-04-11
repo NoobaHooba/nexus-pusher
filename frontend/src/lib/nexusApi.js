@@ -1,27 +1,28 @@
 /**
  * nexusApi.js
  *
- * Auth strategy: send credentials as ?_auth=Basic <base64> query param.
- * Nginx reads $arg__auth and sets it as the Authorization header to Nexus.
+ * Auth strategy: send ?_t=<base64(user:pass)> (token only, no 'Basic ' prefix).
+ * Nginx prepends 'Basic ' and sets the Authorization header.
  *
- * IMPORTANT: do NOT encodeURIComponent the _auth value.
- * Nginx's $arg__auth variable contains the raw percent-encoded string and
- * does NOT auto-decode it. Nexus expects 'Basic YWRtaW46...' with a literal
- * space — if we send 'Basic%20...' Nexus gets a malformed header and 401s.
+ * Why not send the full 'Basic <token>'?
+ * Browsers ALWAYS percent-encode spaces in URLs before sending, so
+ * 'Basic YWRtaW4...' becomes 'Basic%20YWRtaW4...' on the wire.
+ * Nginx's $arg_* variables contain the raw percent-encoded value, so
+ * Nexus receives 'Basic%20...' which it rejects (malformed header).
  *
- * The base64 alphabet (A-Z a-z 0-9 + / =) is URL-safe except for '+' '/' '='
- * but those are valid in header values and Nginx passes them through fine.
+ * By sending only the base64 token (no space), Nginx can safely prepend
+ * 'Basic ' as a string literal in the config. base64 chars (A-Za-z0-9+/=)
+ * are never percent-encoded by browsers.
  */
 
 function toBase64(str) {
   return btoa(unescape(encodeURIComponent(str)));
 }
 
-function buildAuthParam(username, password) {
+function buildTokenParam(username, password) {
   if (!username) return '';
-  // Intentionally NOT encodeURIComponent — Nginx must receive the literal value
-  const token = 'Basic ' + toBase64(`${username}:${password || ''}`);
-  return '&_auth=' + token;
+  // Send raw base64 token only — Nginx prepends 'Basic '
+  return '&_t=' + toBase64(`${username}:${password || ''}`);
 }
 
 function baseUrl(nexusUrl) {
@@ -29,8 +30,8 @@ function baseUrl(nexusUrl) {
 }
 
 async function nexusUpload({ nexusUrl, repo, username, password, formData, onProgress }) {
-  const auth = buildAuthParam(username, password);
-  const url = `${baseUrl(nexusUrl)}/service/rest/v1/components?repository=${encodeURIComponent(repo)}${auth}`;
+  const token = buildTokenParam(username, password);
+  const url = `${baseUrl(nexusUrl)}/service/rest/v1/components?repository=${encodeURIComponent(repo)}${token}`;
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

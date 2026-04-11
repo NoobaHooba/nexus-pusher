@@ -4,15 +4,14 @@ function toBase64(str) {
   return btoa(unescape(encodeURIComponent(str)));
 }
 
-function buildAuthParam(username, password) {
+function buildTokenParam(username, password) {
   if (!username) return '';
-  // Intentionally NOT encodeURIComponent — see nexusApi.js for explanation
-  return '&_auth=Basic ' + toBase64(`${username}:${password || ''}`);
+  return '&_t=' + toBase64(`${username}:${password || ''}`);
 }
 
 async function validateCredentials({ username, password }) {
-  const auth = buildAuthParam(username, password);
-  const url = `http://localhost:8082/service/rest/v1/repositories?_dummy=1${auth}`;
+  const token = buildTokenParam(username, password);
+  const url = `http://localhost:8082/service/rest/v1/repositories?_dummy=1${token}`;
 
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
