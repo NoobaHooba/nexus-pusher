@@ -6,24 +6,24 @@ function toBase64(str) {
 
 async function validateCredentials({ nexusUrl, username, password }) {
   const base = nexusUrl.replace(/\/$/, '');
-  const url = `${base}/service/rest/v1/repositories`;
+  // Append a timestamp so the browser never reuses a cached 200 from a
+  // previous auth session. Without this, Firefox reuses the cached response
+  // and the validation always passes even with wrong credentials.
+  const url = `${base}/service/rest/v1/repositories?_t=${Date.now()}`;
 
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url);
 
-    // Do NOT set withCredentials here — it causes the browser to inject
-    // its cached Basic Auth session, which overrides the typed credentials
-    // and makes the validation always pass with the old session.
-    // withCredentials is only needed in nexusApi.js for the credentialed
-    // CORS multipart uploads where we explicitly need cookie/auth forwarding.
+    // withCredentials must match what Nginx advertises
+    // (Access-Control-Allow-Credentials: true). If they don't match,
+    // the browser aborts the real request after the OPTIONS preflight —
+    // only OPTIONS shows up in nginx logs, the GET never fires.
+    xhr.withCredentials = true;
 
     if (username) {
       xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password}`));
     }
-
-    // Prevent the browser from serving a stale cached 200 for this URL.
-    xhr.setRequestHeader('Cache-Control', 'no-cache');
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
