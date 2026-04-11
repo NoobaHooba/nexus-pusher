@@ -16,8 +16,11 @@ function toBase64(str) {
 
 /**
  * Core upload via XHR (fetch has no upload progress API).
- * withCredentials must be true when the CORS response includes
- * Access-Control-Allow-Credentials: true.
+ *
+ * withCredentials is intentionally NOT set. The nginx proxy uses
+ * Access-Control-Allow-Origin: * (no Allow-Credentials), so the browser
+ * never caches a Basic Auth session for this origin. The Authorization
+ * header set below is always the only one Nexus sees.
  */
 async function nexusUpload({ nexusUrl, repo, username, password, formData, onProgress }) {
   const url = `${BASE(nexusUrl)}?repository=${encodeURIComponent(repo)}`;
@@ -26,11 +29,8 @@ async function nexusUpload({ nexusUrl, repo, username, password, formData, onPro
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
 
-    // Required when the server responds with Access-Control-Allow-Credentials: true
-    xhr.withCredentials = true;
-
     if (username) {
-      xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password}`));
+      xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password || ''}`));
     }
 
     xhr.upload.onprogress = (e) => {
