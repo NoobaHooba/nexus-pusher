@@ -1,24 +1,59 @@
 import React, { useState } from 'react';
 
+function toBase64(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+
 /**
- * Validates credentials by calling the backend /api/validate endpoint.
- * The backend makes a server-side fetch to Nexus so the browser's cached
- * Basic Auth session can never interfere with the Authorization header.
+ * Validates credentials by sending the request through the dedicated
+ * validation port (8082). That port's Nginx block omits
+ * Access-Control-Allow-Credentials, so the browser never builds a cached
+ * Basic Auth session for localhost:8082. This means the Authorization
+ * header set here is always the only one Nexus sees — wrong credentials
+ * reliably return 401 instead of reusing a cached valid session.
  */
 async function validateCredentials({ nexusUrl, username, password }) {
+  // Swap the user-configured proxy port for the validation port (8082).
+  // e.g. http://localhost:8080 → http://localhost:8082
+  let validationUrl;
   try {
-    const res = await fetch('/api/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nexusUrl, username, password }),
-    });
-    if (!res.ok) {
-      return { ok: false, message: `Validation service error \u2014 HTTP ${res.status}` };
-    }
-    return await res.json();
+    const parsed = new URL(nexusUrl.replace(/\/$/, ''));
+    parsed.port = '8082';
+    validationUrl = parsed.toString();
   } catch {
-    return { ok: false, message: 'Cannot reach the backend service \u2014 is it running on port 3001?' };
+    return { ok: false, message: 'Invalid Nexus URL' };
   }
+
+  const url = `${validationUrl}/service/rest/v1/repositories`;
+
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', url);
+    // No withCredentials — the 8082 server block doesn't send
+    // Access-Control-Allow-Credentials so the browser won't cache a session.
+    if (username) {
+      xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password}`));
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve({ ok: true, message: 'Connection successful' });
+      } else if (xhr.status === 401) {
+        resolve({ ok: false, message: 'Authentication failed \u2014 username or password is incorrect' });
+      } else if (xhr.status === 403) {
+        resolve({ ok: false, message: 'Connected, but this user does not have permission to query Nexus' });
+      } else if (xhr.status === 404) {
+        resolve({ ok: false, message: 'Proxy reached, but Nexus REST API path was not found' });
+      } else {
+        resolve({ ok: false, message: `Connection failed \u2014 HTTP ${xhr.status}` });
+      }
+    };
+
+    xhr.onerror = () => resolve({ ok: false, message: 'Cannot reach proxy URL \u2014 check the Nexus URL and nginx container' });
+    xhr.ontimeout = () => resolve({ ok: false, message: 'Connection test timed out' });
+    xhr.timeout = 10000;
+    xhr.send();
+  });
 }
 
 export default function SettingsModal({ settings, onSave, onClose }) {
