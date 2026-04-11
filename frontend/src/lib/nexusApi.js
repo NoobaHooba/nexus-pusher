@@ -1,16 +1,16 @@
 /**
  * nexusApi.js
  *
- * Auth strategy: send credentials as ?_auth=Basic%20<base64> query param.
- * Nginx reads $arg__auth, sets it as the Authorization header to Nexus,
- * and strips the param from the upstream URL.
+ * Auth strategy: send credentials as ?_auth=Basic <base64> query param.
+ * Nginx reads $arg__auth and sets it as the Authorization header to Nexus.
  *
- * This bypasses all three browser restrictions:
- *   - Authorization header  → overridden by browser Basic Auth cache
- *   - Custom header         → stripped by Firefox on cross-origin multipart POST
- *   - URL user:pass         → blocked by browsers on cross-origin XHR
+ * IMPORTANT: do NOT encodeURIComponent the _auth value.
+ * Nginx's $arg__auth variable contains the raw percent-encoded string and
+ * does NOT auto-decode it. Nexus expects 'Basic YWRtaW46...' with a literal
+ * space — if we send 'Basic%20...' Nexus gets a malformed header and 401s.
  *
- * Query params are part of the URL and bypass all of the above.
+ * The base64 alphabet (A-Z a-z 0-9 + / =) is URL-safe except for '+' '/' '='
+ * but those are valid in header values and Nginx passes them through fine.
  */
 
 function toBase64(str) {
@@ -19,7 +19,9 @@ function toBase64(str) {
 
 function buildAuthParam(username, password) {
   if (!username) return '';
-  return '&_auth=' + encodeURIComponent('Basic ' + toBase64(`${username}:${password || ''}`));
+  // Intentionally NOT encodeURIComponent — Nginx must receive the literal value
+  const token = 'Basic ' + toBase64(`${username}:${password || ''}`);
+  return '&_auth=' + token;
 }
 
 function baseUrl(nexusUrl) {

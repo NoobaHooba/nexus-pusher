@@ -6,13 +6,10 @@ function toBase64(str) {
 
 function buildAuthParam(username, password) {
   if (!username) return '';
-  return '&_auth=' + encodeURIComponent('Basic ' + toBase64(`${username}:${password || ''}`));
+  // Intentionally NOT encodeURIComponent — see nexusApi.js for explanation
+  return '&_auth=Basic ' + toBase64(`${username}:${password || ''}`);
 }
 
-/**
- * Validates credentials via the dedicated validation port (8082).
- * Sends ?_auth=Basic <base64> — Nginx maps it to Authorization header.
- */
 async function validateCredentials({ username, password }) {
   const auth = buildAuthParam(username, password);
   const url = `http://localhost:8082/service/rest/v1/repositories?_dummy=1${auth}`;
