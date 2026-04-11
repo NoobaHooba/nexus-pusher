@@ -5,23 +5,19 @@ function toBase64(str) {
 }
 
 /**
- * Validates credentials by sending the request through the dedicated
- * validation port (8082). That port's Nginx block omits
- * Access-Control-Allow-Credentials, so the browser never builds a cached
- * Basic Auth session for localhost:8082. This means the Authorization
- * header set here is always the only one Nexus sees — wrong credentials
- * reliably return 401 instead of reusing a cached valid session.
+ * Validates credentials through the dedicated validation port (8082).
+ * That port uses Access-Control-Allow-Origin: * (no credentials header)
+ * so the browser never caches a Basic Auth session for that origin.
+ * Wrong credentials reliably return 401.
  */
 async function validateCredentials({ nexusUrl, username, password }) {
-  // Swap the user-configured proxy port for the validation port (8082).
-  // e.g. http://localhost:8080 → http://localhost:8082
   let validationUrl;
   try {
     const parsed = new URL(nexusUrl.replace(/\/$/, ''));
     parsed.port = '8082';
     validationUrl = parsed.toString();
   } catch {
-    return { ok: false, message: 'Invalid Nexus URL' };
+    return { ok: false, message: 'Invalid Nexus URL — must start with http://' };
   }
 
   const url = `${validationUrl}/service/rest/v1/repositories`;
@@ -29,28 +25,31 @@ async function validateCredentials({ nexusUrl, username, password }) {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url);
-    // No withCredentials — the 8082 server block doesn't send
-    // Access-Control-Allow-Credentials so the browser won't cache a session.
+    // No withCredentials — wildcard ACAO on 8082 means the browser will
+    // never cache an auth session for this origin.
     if (username) {
-      xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password}`));
+      xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password || ''}`));
     }
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve({ ok: true, message: 'Connection successful' });
       } else if (xhr.status === 401) {
-        resolve({ ok: false, message: 'Authentication failed \u2014 username or password is incorrect' });
+        resolve({ ok: false, message: 'Authentication failed — username or password is incorrect' });
       } else if (xhr.status === 403) {
         resolve({ ok: false, message: 'Connected, but this user does not have permission to query Nexus' });
       } else if (xhr.status === 404) {
-        resolve({ ok: false, message: 'Proxy reached, but Nexus REST API path was not found' });
+        resolve({ ok: false, message: 'Reached the proxy but Nexus REST API path was not found — is Nexus running?' });
       } else {
-        resolve({ ok: false, message: `Connection failed \u2014 HTTP ${xhr.status}` });
+        resolve({ ok: false, message: `Connection failed — HTTP ${xhr.status}` });
       }
     };
 
-    xhr.onerror = () => resolve({ ok: false, message: 'Cannot reach proxy URL \u2014 check the Nexus URL and nginx container' });
-    xhr.ontimeout = () => resolve({ ok: false, message: 'Connection test timed out' });
+    xhr.onerror = () => resolve({
+      ok: false,
+      message: 'CORS or network error — check that port 8082 is exposed and the proxy container is running',
+    });
+    xhr.ontimeout = () => resolve({ ok: false, message: 'Connection test timed out after 10 s' });
     xhr.timeout = 10000;
     xhr.send();
   });
@@ -112,7 +111,11 @@ export default function SettingsModal({ settings, onSave, onClose }) {
         </div>
 
         {status && (
-          <div className={`rounded-xl px-4 py-3 text-sm font-medium ${status.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+          <div className={`rounded-xl px-4 py-3 text-sm font-medium ${
+            status.ok
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              : 'bg-rose-50 text-rose-700 border border-rose-200'
+          }`}>
             {status.message}
           </div>
         )}
