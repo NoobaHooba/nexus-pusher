@@ -7,9 +7,16 @@ services:
     ports:
       - '5173:80'
 
-  # Reverse proxy to Nexus — mirrors the manual docker run command:
-  # docker run -d --name nexus-proxy --network nexus-net -p 8080:80 \
-  #   -v "$PWD/nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine
+  # Node.js backend — validates credentials server-side (bypasses browser
+  # Basic Auth cache) and handles uploads.
+  backend:
+    build: ./backend
+    ports:
+      - '3001:3001'
+    networks:
+      - nexus-net
+
+  # Reverse proxy to Nexus.
   # In the app Settings, set Nexus URL to: http://localhost:8080
   proxy:
     image: nginx:alpine

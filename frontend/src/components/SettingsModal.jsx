@@ -1,49 +1,24 @@
 import React, { useState } from 'react';
 
-function toBase64(str) {
-  return btoa(unescape(encodeURIComponent(str)));
-}
-
+/**
+ * Validates credentials by calling the backend /api/validate endpoint.
+ * The backend makes a server-side fetch to Nexus so the browser's cached
+ * Basic Auth session can never interfere with the Authorization header.
+ */
 async function validateCredentials({ nexusUrl, username, password }) {
-  const base = nexusUrl.replace(/\/$/, '');
-  // Append a timestamp so the browser never reuses a cached 200 from a
-  // previous auth session. Without this, Firefox reuses the cached response
-  // and the validation always passes even with wrong credentials.
-  const url = `${base}/service/rest/v1/repositories?_t=${Date.now()}`;
-
-  return new Promise((resolve) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', url);
-
-    // withCredentials must match what Nginx advertises
-    // (Access-Control-Allow-Credentials: true). If they don't match,
-    // the browser aborts the real request after the OPTIONS preflight —
-    // only OPTIONS shows up in nginx logs, the GET never fires.
-    xhr.withCredentials = true;
-
-    if (username) {
-      xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password}`));
+  try {
+    const res = await fetch('/api/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nexusUrl, username, password }),
+    });
+    if (!res.ok) {
+      return { ok: false, message: `Validation service error \u2014 HTTP ${res.status}` };
     }
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve({ ok: true, message: 'Connection successful' });
-      } else if (xhr.status === 401) {
-        resolve({ ok: false, message: 'Authentication failed — username or password is incorrect' });
-      } else if (xhr.status === 403) {
-        resolve({ ok: false, message: 'Connected, but this user does not have permission to query Nexus' });
-      } else if (xhr.status === 404) {
-        resolve({ ok: false, message: 'Proxy reached, but Nexus REST API path was not found' });
-      } else {
-        resolve({ ok: false, message: `Connection failed — HTTP ${xhr.status}` });
-      }
-    };
-
-    xhr.onerror = () => resolve({ ok: false, message: 'Cannot reach proxy URL — check the Nexus URL and nginx container' });
-    xhr.ontimeout = () => resolve({ ok: false, message: 'Connection test timed out' });
-    xhr.timeout = 10000;
-    xhr.send();
-  });
+    return await res.json();
+  } catch {
+    return { ok: false, message: 'Cannot reach the backend service \u2014 is it running on port 3001?' };
+  }
 }
 
 export default function SettingsModal({ settings, onSave, onClose }) {
