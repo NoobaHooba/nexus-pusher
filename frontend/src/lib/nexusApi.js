@@ -1,27 +1,20 @@
 /**
  * nexusApi.js
  *
- * Auth strategy: send ?_t=<base64(user:pass)> (token only, no 'Basic ' prefix).
- * Nginx prepends 'Basic ' and sets the Authorization header.
+ * Auth strategy: send ?_t=<base64(user:pass)> with padding stripped.
+ * Nginx prepends 'Basic ' and sets Authorization header.
  *
- * Why not send the full 'Basic <token>'?
- * Browsers ALWAYS percent-encode spaces in URLs before sending, so
- * 'Basic YWRtaW4...' becomes 'Basic%20YWRtaW4...' on the wire.
- * Nginx's $arg_* variables contain the raw percent-encoded value, so
- * Nexus receives 'Basic%20...' which it rejects (malformed header).
- *
- * By sending only the base64 token (no space), Nginx can safely prepend
- * 'Basic ' as a string literal in the config. base64 chars (A-Za-z0-9+/=)
- * are never percent-encoded by browsers.
+ * base64 padding '=' is the query-string key=value separator, so
+ * Nginx's $arg__t truncates there. Strip trailing '=' before sending —
+ * base64 padding is optional and all standard decoders accept unpadded tokens.
  */
 
 function toBase64(str) {
-  return btoa(unescape(encodeURIComponent(str)));
+  return btoa(unescape(encodeURIComponent(str))).replace(/=+$/, '');
 }
 
 function buildTokenParam(username, password) {
   if (!username) return '';
-  // Send raw base64 token only — Nginx prepends 'Basic '
   return '&_t=' + toBase64(`${username}:${password || ''}`);
 }
 
