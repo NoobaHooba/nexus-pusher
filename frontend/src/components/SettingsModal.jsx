@@ -11,11 +11,19 @@ async function validateCredentials({ nexusUrl, username, password }) {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url);
-    xhr.withCredentials = true;
+
+    // Do NOT set withCredentials here — it causes the browser to inject
+    // its cached Basic Auth session, which overrides the typed credentials
+    // and makes the validation always pass with the old session.
+    // withCredentials is only needed in nexusApi.js for the credentialed
+    // CORS multipart uploads where we explicitly need cookie/auth forwarding.
 
     if (username) {
       xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password}`));
     }
+
+    // Prevent the browser from serving a stale cached 200 for this URL.
+    xhr.setRequestHeader('Cache-Control', 'no-cache');
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
