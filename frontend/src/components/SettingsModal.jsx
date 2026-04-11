@@ -4,19 +4,22 @@ function toBase64(str) {
   return btoa(unescape(encodeURIComponent(str)));
 }
 
+function buildAuthParam(username, password) {
+  if (!username) return '';
+  return '&_auth=' + encodeURIComponent('Basic ' + toBase64(`${username}:${password || ''}`));
+}
+
 /**
  * Validates credentials via the dedicated validation port (8082).
- * Sends credentials in X-Nexus-Auth — Nginx maps it to Authorization
- * and strips any browser-cached session header.
+ * Sends ?_auth=Basic <base64> — Nginx maps it to Authorization header.
  */
 async function validateCredentials({ username, password }) {
-  const url = 'http://localhost:8082/service/rest/v1/repositories';
-  const auth = username ? 'Basic ' + toBase64(`${username}:${password || ''}`) : null;
+  const auth = buildAuthParam(username, password);
+  const url = `http://localhost:8082/service/rest/v1/repositories?_dummy=1${auth}`;
 
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url);
-    if (auth) xhr.setRequestHeader('X-Nexus-Auth', auth);
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -69,8 +72,8 @@ export default function SettingsModal({ settings, onSave, onClose }) {
       type: 'text',
       hint: 'The nginx proxy address — NOT the Nexus direct port (8081). Default: http://localhost:8080',
     },
-    { key: 'username',   label: 'Username',           placeholder: 'admin',            type: 'text' },
-    { key: 'password',   label: 'Password',           placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', type: 'password' },
+    { key: 'username',    label: 'Username',           placeholder: 'admin',           type: 'text' },
+    { key: 'password',    label: 'Password',           placeholder: '••••••••',        type: 'password' },
     { key: 'defaultRepo', label: 'Default Repository', placeholder: 'maven-releases',  type: 'text' },
   ];
 

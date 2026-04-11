@@ -1,41 +1,34 @@
 /**
  * nexusApi.js
- * Calls nginx (which proxies to Nexus) using the REST API v1 components endpoint.
  *
- * Auth strategy: embed credentials in the request URL so the browser
- * constructs the Authorization header from the URL, not from its
- * Basic Auth session cache. Firefox cannot override a URL-derived
- * Authorization header with a cached session.
+ * Auth strategy: send credentials as ?_auth=Basic%20<base64> query param.
+ * Nginx reads $arg__auth, sets it as the Authorization header to Nexus,
+ * and strips the param from the upstream URL.
  *
- *   http://user:pass@localhost:8080/service/rest/v1/components?...
+ * This bypasses all three browser restrictions:
+ *   - Authorization header  → overridden by browser Basic Auth cache
+ *   - Custom header         → stripped by Firefox on cross-origin multipart POST
+ *   - URL user:pass         → blocked by browsers on cross-origin XHR
  *
- * Nginx forwards the resulting Authorization header to Nexus as-is.
+ * Query params are part of the URL and bypass all of the above.
  */
 
 function toBase64(str) {
   return btoa(unescape(encodeURIComponent(str)));
 }
 
-/**
- * Injects username:password into a URL.
- * http://localhost:8080 -> http://admin:secret@localhost:8080
- */
-function buildAuthUrl(nexusUrl, username, password) {
-  try {
-    const u = new URL(nexusUrl.replace(/\/$/, ''));
-    if (username) {
-      u.username = encodeURIComponent(username);
-      u.password = encodeURIComponent(password || '');
-    }
-    return u.toString();
-  } catch {
-    return nexusUrl;
-  }
+function buildAuthParam(username, password) {
+  if (!username) return '';
+  return '&_auth=' + encodeURIComponent('Basic ' + toBase64(`${username}:${password || ''}`));
+}
+
+function baseUrl(nexusUrl) {
+  return nexusUrl.replace(/\/$/, '');
 }
 
 async function nexusUpload({ nexusUrl, repo, username, password, formData, onProgress }) {
-  const base = buildAuthUrl(nexusUrl, username, password);
-  const url = `${base.replace(/\/$/, '')}/service/rest/v1/components?repository=${encodeURIComponent(repo)}`;
+  const auth = buildAuthParam(username, password);
+  const url = `${baseUrl(nexusUrl)}/service/rest/v1/components?repository=${encodeURIComponent(repo)}${auth}`;
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -56,7 +49,7 @@ async function nexusUpload({ nexusUrl, repo, username, password, formData, onPro
     };
 
     xhr.onerror = () => reject(new Error(
-      'Network error \u2014 cannot reach the proxy. Check the Proxy URL in Settings and that the container is running.'
+      'Network error — cannot reach the proxy. Check the Proxy URL in Settings and that the container is running.'
     ));
     xhr.ontimeout = () => reject(new Error('Request timed out'));
     xhr.timeout = 0;
@@ -67,10 +60,10 @@ async function nexusUpload({ nexusUrl, repo, username, password, formData, onPro
 
 function parseNexusError(xhr) {
   const { status } = xhr;
-  if (status === 401) return 'Authentication failed \u2014 check username/password in Settings';
-  if (status === 403) return 'Permission denied \u2014 user does not have deploy rights on this repository';
-  if (status === 404) return 'Repository not found \u2014 check the repository name';
-  if (status === 0)   return 'No response \u2014 nginx proxy may be unreachable or CORS is misconfigured';
+  if (status === 401) return 'Authentication failed — check username/password in Settings';
+  if (status === 403) return 'Permission denied — user does not have deploy rights on this repository';
+  if (status === 404) return 'Repository not found — check the repository name';
+  if (status === 0)   return 'No response — nginx proxy may be unreachable or CORS is misconfigured';
 
   const body = xhr.responseText || '';
   try {
