@@ -2,36 +2,36 @@
  * nexusApi.js
  * Calls nginx (which proxies to Nexus) using the REST API v1 components endpoint.
  * Endpoint: POST /service/rest/v1/components?repository=<repo>
+ *
+ * Auth strategy: credentials are sent in X-Nexus-Auth (a pre-built
+ * "Basic <base64>" token). Nginx strips the browser's own Authorization
+ * header and forwards X-Nexus-Auth as Authorization to Nexus. This
+ * completely bypasses Firefox's cached Basic Auth session.
  */
 
 const BASE = (nexusUrl) => `${nexusUrl.replace(/\/$/, '')}/service/rest/v1/components`;
 
-/**
- * UTF-8 safe base64 encode for Basic Auth.
- * Plain btoa() throws on passwords that contain non-ASCII characters.
- */
 function toBase64(str) {
   return btoa(unescape(encodeURIComponent(str)));
 }
 
-/**
- * Core upload via XHR (fetch has no upload progress API).
- *
- * withCredentials is intentionally NOT set. The nginx proxy uses
- * Access-Control-Allow-Origin: * (no Allow-Credentials), so the browser
- * never caches a Basic Auth session for this origin. The Authorization
- * header set below is always the only one Nexus sees.
- */
+function buildAuthHeader(username, password) {
+  if (!username) return null;
+  return 'Basic ' + toBase64(`${username}:${password || ''}`);
+}
+
 async function nexusUpload({ nexusUrl, repo, username, password, formData, onProgress }) {
   const url = `${BASE(nexusUrl)}?repository=${encodeURIComponent(repo)}`;
+  const auth = buildAuthHeader(username, password);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
 
-    if (username) {
-      xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password || ''}`));
-    }
+    // Send credentials via custom header — browser never manages this.
+    // Nginx maps X-Nexus-Auth → Authorization and strips the browser's own
+    // Authorization header so the cached session cannot interfere.
+    if (auth) xhr.setRequestHeader('X-Nexus-Auth', auth);
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {
@@ -48,7 +48,7 @@ async function nexusUpload({ nexusUrl, repo, username, password, formData, onPro
     };
 
     xhr.onerror = () => reject(new Error(
-      'Network error — cannot reach the proxy. Check the nginx URL in Settings and that the container is running.'
+      'Network error — cannot reach the proxy. Check the Proxy URL in Settings and that the container is running.'
     ));
     xhr.ontimeout = () => reject(new Error('Request timed out'));
     xhr.timeout = 0;

@@ -5,43 +5,36 @@ function toBase64(str) {
 }
 
 /**
- * Validates credentials through the dedicated validation port (8082).
- *
- * We always target http://localhost:8082 for validation regardless of
- * what the user typed in the Proxy URL field. This means:
- * - The user can type http://localhost:8080 (proxy) or even an IP, and
- *   validation still works correctly.
- * - The browser has no cached Basic Auth session for localhost:8082
- *   (wildcard ACAO, no Allow-Credentials on that Nginx block), so the
- *   Authorization header set here is always the only one Nexus sees.
+ * Validates credentials via the dedicated validation port (8082).
+ * Sends credentials in X-Nexus-Auth — Nginx maps it to Authorization
+ * and strips any browser-cached session header.
  */
 async function validateCredentials({ username, password }) {
   const url = 'http://localhost:8082/service/rest/v1/repositories';
+  const auth = username ? 'Basic ' + toBase64(`${username}:${password || ''}`) : null;
 
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url);
-    if (username) {
-      xhr.setRequestHeader('Authorization', 'Basic ' + toBase64(`${username}:${password || ''}`));
-    }
+    if (auth) xhr.setRequestHeader('X-Nexus-Auth', auth);
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve({ ok: true, message: 'Connection successful' });
       } else if (xhr.status === 401) {
-        resolve({ ok: false, message: 'Authentication failed \u2014 username or password is incorrect' });
+        resolve({ ok: false, message: 'Authentication failed — username or password is incorrect' });
       } else if (xhr.status === 403) {
         resolve({ ok: false, message: 'Connected, but this user does not have permission to query Nexus' });
       } else if (xhr.status === 404) {
-        resolve({ ok: false, message: 'Reached the proxy but Nexus REST API was not found \u2014 is Nexus running?' });
+        resolve({ ok: false, message: 'Reached the proxy but Nexus REST API was not found — is Nexus running?' });
       } else {
-        resolve({ ok: false, message: `Connection failed \u2014 HTTP ${xhr.status}` });
+        resolve({ ok: false, message: `Connection failed — HTTP ${xhr.status}` });
       }
     };
 
     xhr.onerror = () => resolve({
       ok: false,
-      message: 'CORS or network error \u2014 is the proxy container running with port 8082 exposed?',
+      message: 'CORS or network error — is the proxy container running with port 8082 exposed?',
     });
     xhr.ontimeout = () => resolve({ ok: false, message: 'Connection test timed out after 10 s' });
     xhr.timeout = 10000;
@@ -57,20 +50,15 @@ export default function SettingsModal({ settings, onSave, onClose }) {
 
   const handleSave = async () => {
     setStatus(null);
-
     if (!form.nexusUrl?.trim()) {
       setStatus({ ok: false, message: 'Proxy URL is required' });
       return;
     }
-
     setTesting(true);
     const result = await validateCredentials(form);
     setTesting(false);
     setStatus(result);
-
-    if (result.ok) {
-      onSave(form);
-    }
+    if (result.ok) onSave(form);
   };
 
   const fields = [
@@ -79,26 +67,11 @@ export default function SettingsModal({ settings, onSave, onClose }) {
       label: 'Proxy URL',
       placeholder: 'http://localhost:8080',
       type: 'text',
-      hint: 'The nginx proxy address \u2014 NOT the Nexus direct port (8081). Default: http://localhost:8080',
+      hint: 'The nginx proxy address — NOT the Nexus direct port (8081). Default: http://localhost:8080',
     },
-    {
-      key: 'username',
-      label: 'Username',
-      placeholder: 'admin',
-      type: 'text',
-    },
-    {
-      key: 'password',
-      label: 'Password',
-      placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',
-      type: 'password',
-    },
-    {
-      key: 'defaultRepo',
-      label: 'Default Repository',
-      placeholder: 'maven-releases',
-      type: 'text',
-    },
+    { key: 'username',   label: 'Username',           placeholder: 'admin',            type: 'text' },
+    { key: 'password',   label: 'Password',           placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', type: 'password' },
+    { key: 'defaultRepo', label: 'Default Repository', placeholder: 'maven-releases',  type: 'text' },
   ];
 
   return (
