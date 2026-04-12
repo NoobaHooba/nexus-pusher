@@ -1,25 +1,19 @@
 /**
  * nexusApi.js
  *
- * Auth strategy: send ?_t=<base64(user:pass)> with '=' padding encoded as '%3D'.
- * Nginx prepends 'Basic ' and sets Authorization header.
+ * Auth strategy: send a real 'Authorization: Basic <base64>' HTTP header.
+ * Nginx passes it straight through to Nexus via $http_authorization.
  *
- * Why encode '=' as '%3D':
- * - Raw '=' in query string is the key=value separator — Nginx's $arg__t truncates there
- * - Stripping '=' causes Nexus to reject the token (Nexus requires padded base64)
- * - Browsers don't re-encode already percent-encoded chars, so '%3D' survives intact
- * - Nginx's $arg__t automatically URL-decodes '%3D' back to '='
- * - Nexus receives a correctly padded token and accepts it
+ * Why not query params:
+ * - Raw '=' in ?_t= truncates at Nginx's $arg_* (= is key=value separator)
+ * - Stripping padding causes Nexus to reject the token
+ * - Encoding as %3D: Nginx $arg_* reads the RAW URI, %3D is never decoded
+ * Real HTTP headers have none of these issues.
  */
 
-function toBase64(str) {
-  // Encode '=' padding as '%3D' so it survives as a query param value
-  return btoa(unescape(encodeURIComponent(str))).replace(/=/g, '%3D');
-}
-
-function buildTokenParam(username, password) {
-  if (!username) return '';
-  return '&_t=' + toBase64(`${username}:${password || ''}`);
+function makeAuthHeader(username, password) {
+  if (!username) return null;
+  return 'Basic ' + btoa(unescape(encodeURIComponent(`${username}:${password || ''}`)));
 }
 
 function baseUrl(nexusUrl) {
@@ -27,12 +21,13 @@ function baseUrl(nexusUrl) {
 }
 
 async function nexusUpload({ nexusUrl, repo, username, password, formData, onProgress }) {
-  const token = buildTokenParam(username, password);
-  const url = `${baseUrl(nexusUrl)}/service/rest/v1/components?repository=${encodeURIComponent(repo)}${token}`;
+  const auth = makeAuthHeader(username, password);
+  const url = `${baseUrl(nexusUrl)}/service/rest/v1/components?repository=${encodeURIComponent(repo)}`;
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
+    if (auth) xhr.setRequestHeader('Authorization', auth);
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {

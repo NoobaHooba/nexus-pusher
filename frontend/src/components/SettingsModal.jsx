@@ -1,25 +1,23 @@
 import React, { useState } from 'react';
 
-function toBase64(str) {
-  return btoa(unescape(encodeURIComponent(str))).replace(/=/g, '%3D');
+function makeAuthHeader(username, password) {
+  if (!username) return null;
+  return 'Basic ' + btoa(unescape(encodeURIComponent(`${username}:${password || ''}`)));
 }
 
-function buildTokenParam(username, password) {
-  if (!username) return '';
-  return '&_t=' + toBase64(`${username}:${password || ''}`);
-}
-
-async function validateCredentials({ username, password }) {
-  const token = buildTokenParam(username, password);
-  const url = `http://localhost:8082/service/rest/v1/repositories?_dummy=1${token}`;
+async function validateCredentials({ nexusUrl, username, password }) {
+  const base = (nexusUrl || 'http://localhost:8080').replace(/\/$/, '');
+  const url = `${base}/service/rest/v1/repositories`;
+  const auth = makeAuthHeader(username, password);
 
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url);
+    if (auth) xhr.setRequestHeader('Authorization', auth);
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve({ ok: true, message: 'Connection successful' });
+        resolve({ ok: true, message: 'Connection successful — credentials verified' });
       } else if (xhr.status === 401) {
         resolve({ ok: false, message: 'Authentication failed — username or password is incorrect' });
       } else if (xhr.status === 403) {
@@ -33,7 +31,7 @@ async function validateCredentials({ username, password }) {
 
     xhr.onerror = () => resolve({
       ok: false,
-      message: 'CORS or network error — is the proxy container running with port 8082 exposed?',
+      message: 'CORS or network error — is the proxy container running on port 8080?',
     });
     xhr.ontimeout = () => resolve({ ok: false, message: 'Connection test timed out after 10 s' });
     xhr.timeout = 10000;
@@ -66,11 +64,11 @@ export default function SettingsModal({ settings, onSave, onClose }) {
       label: 'Proxy URL',
       placeholder: 'http://localhost:8080',
       type: 'text',
-      hint: 'The nginx proxy address — NOT the Nexus direct port (8081). Default: http://localhost:8080',
+      hint: 'The nginx proxy address — default: http://localhost:8080',
     },
-    { key: 'username',    label: 'Username',           placeholder: 'admin',           type: 'text' },
-    { key: 'password',    label: 'Password',           placeholder: '••••••••',        type: 'password' },
-    { key: 'defaultRepo', label: 'Default Repository', placeholder: 'maven-releases',  type: 'text' },
+    { key: 'username',    label: 'Username',           placeholder: 'admin',          type: 'text' },
+    { key: 'password',    label: 'Password',           placeholder: '••••••••',       type: 'password' },
+    { key: 'defaultRepo', label: 'Default Repository', placeholder: 'maven-releases', type: 'text' },
   ];
 
   return (
