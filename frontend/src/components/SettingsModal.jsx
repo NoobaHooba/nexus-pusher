@@ -1,42 +1,22 @@
 import React, { useState } from 'react';
 
-function makeAuthHeader(username, password) {
-  if (!username) return null;
-  return 'Basic ' + btoa(unescape(encodeURIComponent(`${username}:${password || ''}`)));
-}
+const BACKEND = 'http://localhost:3001';
 
 async function validateCredentials({ nexusUrl, username, password }) {
-  const base = (nexusUrl || 'http://localhost:8080').replace(/\/$/, '');
-  const url = `${base}/service/rest/v1/repositories`;
-  const auth = makeAuthHeader(username, password);
-
-  return new Promise((resolve) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', url);
-    if (auth) xhr.setRequestHeader('Authorization', auth);
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve({ ok: true, message: 'Connection successful — credentials verified' });
-      } else if (xhr.status === 401) {
-        resolve({ ok: false, message: 'Authentication failed — username or password is incorrect' });
-      } else if (xhr.status === 403) {
-        resolve({ ok: false, message: 'Connected, but this user does not have permission to query Nexus' });
-      } else if (xhr.status === 404) {
-        resolve({ ok: false, message: 'Reached the proxy but Nexus REST API was not found — is Nexus running?' });
-      } else {
-        resolve({ ok: false, message: `Connection failed — HTTP ${xhr.status}` });
-      }
-    };
-
-    xhr.onerror = () => resolve({
-      ok: false,
-      message: 'CORS or network error — is the proxy container running on port 8080?',
+  try {
+    const res = await fetch(`${BACKEND}/api/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nexusUrl, username, password }),
     });
-    xhr.ontimeout = () => resolve({ ok: false, message: 'Connection test timed out after 10 s' });
-    xhr.timeout = 10000;
-    xhr.send();
-  });
+    const data = await res.json();
+    return data; // { ok: true/false, message: '...' }
+  } catch (err) {
+    return {
+      ok: false,
+      message: 'Cannot reach the backend — is the backend container running on port 3001?',
+    };
+  }
 }
 
 export default function SettingsModal({ settings, onSave, onClose }) {
@@ -48,7 +28,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
   const handleSave = async () => {
     setStatus(null);
     if (!form.nexusUrl?.trim()) {
-      setStatus({ ok: false, message: 'Proxy URL is required' });
+      setStatus({ ok: false, message: 'Nexus URL is required' });
       return;
     }
     setTesting(true);
@@ -61,13 +41,13 @@ export default function SettingsModal({ settings, onSave, onClose }) {
   const fields = [
     {
       key: 'nexusUrl',
-      label: 'Proxy URL',
-      placeholder: 'http://localhost:8080',
+      label: 'Nexus URL',
+      placeholder: 'http://localhost:8081',
       type: 'text',
-      hint: 'The nginx proxy address — default: http://localhost:8080',
+      hint: 'Direct Nexus URL — the backend contacts it server-side, no proxy needed.',
     },
     { key: 'username',    label: 'Username',           placeholder: 'admin',          type: 'text' },
-    { key: 'password',    label: 'Password',           placeholder: '••••••••',       type: 'password' },
+    { key: 'password',    label: 'Password',           placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',       type: 'password' },
     { key: 'defaultRepo', label: 'Default Repository', placeholder: 'maven-releases', type: 'text' },
   ];
 
@@ -81,7 +61,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
           </button>
         </div>
         <p className="text-sm text-on-surface-variant">
-          Configure your proxy URL and credentials. Credentials are tested against Nexus before saving.
+          Credentials are sent to the backend and tested against Nexus server-side.
         </p>
         <div className="flex flex-col gap-4">
           {fields.map(({ key, label, placeholder, type, hint }) => (
