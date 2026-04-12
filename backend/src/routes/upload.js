@@ -1,18 +1,17 @@
 const express = require('express');
-const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
-const router = express.Router();
+const multer  = require('multer');
+const fs      = require('fs');
+const router  = express.Router();
 
-const mavenUploader   = require('../uploaders/maven');
-const npmUploader     = require('../uploaders/npm');
-const nugetUploader   = require('../uploaders/nuget');
-const pypiUploader    = require('../uploaders/pypi');
-const dockerUploader  = require('../uploaders/docker');
-const yumUploader     = require('../uploaders/yum');
-const aptUploader     = require('../uploaders/apt');
-const helmUploader    = require('../uploaders/helm');
-const rawUploader     = require('../uploaders/raw');
+const mavenUploader  = require('../uploaders/maven');
+const npmUploader    = require('../uploaders/npm');
+const nugetUploader  = require('../uploaders/nuget');
+const pypiUploader   = require('../uploaders/pypi');
+const dockerUploader = require('../uploaders/docker');
+const yumUploader    = require('../uploaders/yum');
+const aptUploader    = require('../uploaders/apt');
+const helmUploader   = require('../uploaders/helm');
+const rawUploader    = require('../uploaders/raw');
 
 const UPLOAD_DIR = '/tmp/nexus-pusher-uploads';
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -21,7 +20,13 @@ const storage = multer.diskStorage({
   destination: UPLOAD_DIR,
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
-const upload = multer({ storage });
+
+// 1 GB hard cap — prevents OOM on the backend, especially for npm uploads
+// which must hold the entire tarball in memory as base64.
+const upload = multer({
+  storage,
+  limits: { fileSize: 1 * 1024 * 1024 * 1024 },
+});
 
 const uploaderMap = {
   maven:  mavenUploader,
@@ -64,18 +69,24 @@ router.post('/:type', upload.array('files'), async (req, res) => {
     } catch (err) {
       results.push({ file: file.originalname, status: 'error', error: err.message });
     } finally {
-      // Clean up temp file regardless of outcome
       fs.unlink(file.path, () => {});
     }
   }
 
-  // If every file errored, return 422 so the frontend axios call rejects
   const allFailed = results.every(r => r.status === 'error');
   if (allFailed) {
     return res.status(422).json({ error: results[0].error, results });
   }
 
   res.json({ results });
+});
+
+// Return a clean 400 when multer rejects an oversized file
+router.use((err, req, res, next) => {
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File too large — maximum upload size is 1 GB' });
+  }
+  next(err);
 });
 
 module.exports = router;
