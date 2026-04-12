@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 
-const BACKEND = 'http://localhost:3001';
-
 async function validateCredentials({ nexusUrl, username, password }) {
   try {
-    const res = await fetch(`${BACKEND}/api/validate`, {
+    const res = await fetch('/api/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nexusUrl, username, password }),
@@ -14,7 +12,7 @@ async function validateCredentials({ nexusUrl, username, password }) {
   } catch (err) {
     return {
       ok: false,
-      message: 'Cannot reach the backend — is the backend container running on port 3001?',
+      message: 'Cannot reach the backend — is the backend container running?',
     };
   }
 }
@@ -42,12 +40,12 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     {
       key: 'nexusUrl',
       label: 'Nexus URL',
-      placeholder: 'http://localhost:8081',
+      placeholder: 'http://nexus:8081',
       type: 'text',
       hint: 'Direct Nexus URL — the backend contacts it server-side, no proxy needed.',
     },
     { key: 'username',    label: 'Username',           placeholder: 'admin',          type: 'text' },
-    { key: 'password',    label: 'Password',           placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',       type: 'password' },
+    { key: 'password',    label: 'Password',           placeholder: '••••••••',       type: 'password' },
     { key: 'defaultRepo', label: 'Default Repository', placeholder: 'maven-releases', type: 'text' },
   ];
 
