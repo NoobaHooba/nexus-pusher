@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
-import AppHeader from './components/AppHeader';
 import RepoSelector from './components/RepoSelector';
 import UploadZone from './components/UploadZone';
 import UploadQueue from './components/UploadQueue';
@@ -33,7 +32,6 @@ export default function App() {
   const { queue, addFiles, clearCompleted, retryItem, totalSize, estimatedTime } =
     useUpload(settings, activeRepo, repoName, extraFields);
 
-  // Show settings modal automatically on first visit
   useEffect(() => {
     if (!settings.nexusUrl) setShowSettings(true);
   }, []);
@@ -53,7 +51,6 @@ export default function App() {
   return (
     <div className="bg-surface text-on-surface min-h-screen selection:bg-accent selection:text-white">
       <Sidebar nexusLogo={NEXUS_LOGO} onOpenSettings={() => setShowSettings(true)} />
-      <AppHeader onOpenSettings={() => setShowSettings(true)} />
       <main className="ml-64 p-10 flex flex-col gap-12 max-w-[1400px]">
         <section>
           <h2 className="text-5xl font-extrabold tracking-tight text-primary mb-4">Upload Assets</h2>
