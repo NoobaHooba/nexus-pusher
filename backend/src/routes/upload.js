@@ -67,15 +67,20 @@ router.post('/:type', upload.array('files'), async (req, res) => {
       const result = await uploader.upload({ file, nexusUrl, repo, username, password, extra });
       results.push({ file: file.originalname, status: 'success', result });
     } catch (err) {
-      results.push({ file: file.originalname, status: 'error', error: err.message });
+      results.push({
+        file: file.originalname,
+        status: err.isDuplicate ? 'warning' : 'error',
+        error: err.message,
+      });
     } finally {
       fs.unlink(file.path, () => {});
     }
   }
 
-  const allFailed = results.every(r => r.status === 'error');
-  if (allFailed) {
-    return res.status(422).json({ error: results[0].error, results });
+  // Only return 422 if there are real errors (not warnings/duplicates)
+  const hasRealErrors = results.some(r => r.status === 'error');
+  if (hasRealErrors && results.every(r => r.status !== 'success')) {
+    return res.status(422).json({ error: results.find(r => r.status === 'error').error, results });
   }
 
   res.json({ results });
