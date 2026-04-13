@@ -1,17 +1,20 @@
 const fs = require('fs');
+const FormData = require('form-data');
 const { nexusRequest } = require('../lib/nexusRequest');
 
 async function upload({ file, nexusUrl, repo, username, password }) {
-  const url = `${nexusUrl}/repository/${repo}/`;
+  const form = new FormData();
+  form.append('apt.asset', fs.createReadStream(file.path), {
+    filename: file.originalname,
+    contentType: 'application/vnd.debian.binary-package',
+  });
 
+  const url = `${nexusUrl}/service/rest/v1/components?repository=${encodeURIComponent(repo)}`;
   const response = await nexusRequest({
     method: 'POST',
     url,
-    data: fs.createReadStream(file.path),
-    headers: {
-      'Content-Type': 'application/vnd.debian.binary-package',
-      'Content-Disposition': `attachment; filename="${file.originalname}"`,
-    },
+    data: form,
+    headers: form.getHeaders(),
     auth: username ? { username, password } : undefined,
   });
 
