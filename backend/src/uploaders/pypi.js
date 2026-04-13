@@ -4,12 +4,12 @@ const { nexusRequest } = require('../lib/nexusRequest');
 
 async function upload({ file, nexusUrl, repo, username, password }) {
   const form = new FormData();
-  form.append('file', fs.createReadStream(file.path), {
+  form.append('pypi.asset', fs.createReadStream(file.path), {
     filename: file.originalname,
     contentType: 'application/octet-stream',
   });
 
-  const url = `${nexusUrl}/repository/${repo}/`;
+  const url = `${nexusUrl}/service/rest/v1/components?repository=${encodeURIComponent(repo)}`;
   const response = await nexusRequest({
     method: 'POST',
     url,
