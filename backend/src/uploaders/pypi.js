@@ -4,9 +4,7 @@ const { nexusRequest } = require('../lib/nexusRequest');
 
 async function upload({ file, nexusUrl, repo, username, password }) {
   const form = new FormData();
-  form.append(':action', 'file_upload');
-  form.append('protocol_version', '1');
-  form.append('content', fs.createReadStream(file.path), {
+  form.append('file', fs.createReadStream(file.path), {
     filename: file.originalname,
     contentType: 'application/octet-stream',
   });
