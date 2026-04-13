@@ -1,20 +1,17 @@
 const fs = require('fs');
-const FormData = require('form-data');
 const { nexusRequest } = require('../lib/nexusRequest');
 
 async function upload({ file, nexusUrl, repo, username, password }) {
-  const form = new FormData();
-  form.append('nuget.asset', fs.createReadStream(file.path), {
-    filename: file.originalname,
-    contentType: 'application/octet-stream',
-  });
+  const url = `${nexusUrl}/repository/${repo}/`;
 
-  const url = `${nexusUrl}/service/rest/v1/components?repository=${encodeURIComponent(repo)}`;
   const response = await nexusRequest({
-    method: 'POST',
+    method: 'PUT',
     url,
-    data: form,
-    headers: form.getHeaders(),
+    data: fs.createReadStream(file.path),
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-NuGet-ApiKey': password || 'APIKEY',
+    },
     auth: username ? { username, password } : undefined,
   });
 
