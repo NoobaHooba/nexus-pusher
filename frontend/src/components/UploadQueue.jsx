@@ -16,7 +16,7 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-export default function UploadQueue({ queue, onClearCompleted, onRetry, onReorder }) {
+export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryAllFailed, onReorder }) {
   const dragItemId = useRef(null);
   const [overItemId, setOverItemId] = useState(null);
 
@@ -25,25 +25,44 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onReorde
   const handleDrop      = (e, toId) => { e.preventDefault(); if (dragItemId.current !== null && dragItemId.current !== toId) onReorder?.(dragItemId.current, toId); dragItemId.current = null; setOverItemId(null); };
   const handleDragEnd   = () => { dragItemId.current = null; setOverItemId(null); };
 
+  const failedCount = queue.filter(i => i.status === 'error').length;
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <h5 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint">Live Process Queue</h5>
           {queue.some(i => i.status === 'pending') && (
             <span className="text-[10px] text-slate-400 dark:text-dark-text-faint font-medium">(drag to reorder)</span>
           )}
         </div>
-        <button onClick={onClearCompleted} className="text-[11px] font-bold text-accent dark:text-dark-accent hover:underline uppercase tracking-wider">Clear Completed</button>
+        <div className="flex items-center gap-3">
+          {failedCount > 0 && (
+            <button
+              onClick={onRetryAllFailed}
+              className="flex items-center gap-1.5 text-[11px] font-bold text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 uppercase tracking-wider transition-colors"
+            >
+              <span className="material-symbols-outlined text-[14px]">refresh</span>
+              Retry {failedCount} Failed
+            </button>
+          )}
+          <button onClick={onClearCompleted} className="text-[11px] font-bold text-accent dark:text-dark-accent hover:underline uppercase tracking-wider">
+            Clear Completed
+          </button>
+        </div>
       </div>
 
+      {/* Empty state */}
       {queue.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-300 dark:text-dark-text-faint">
           <span className="material-symbols-outlined text-5xl mb-3">inbox</span>
           <p className="text-sm font-semibold">No uploads yet</p>
+          <p className="text-xs mt-1 opacity-70">Drop your first artifact to get started</p>
         </div>
       )}
 
+      {/* Items */}
       <div className="flex flex-col gap-3 custom-scrollbar overflow-y-auto max-h-[600px] pr-2">
         {queue.map((item) => {
           const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending;
@@ -71,6 +90,7 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onReorde
               {isUploading && <div className="absolute top-0 left-0 w-1.5 h-full bg-accent" />}
               {isWarning   && <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400" />}
               {isDone      && <div className="absolute top-0 left-0 w-1.5 h-full bg-green-400" />}
+              {isError     && <div className="absolute top-0 left-0 w-1.5 h-full bg-red-400" />}
 
               <div className="flex items-center gap-5">
                 {isPending && (
@@ -85,13 +105,21 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onReorde
                 )}
 
                 <div className={`w-12 h-12 flex-shrink-0 flex items-center justify-center rounded-xl ${cfg.iconBg}`}>
-                  <span className={`material-symbols-outlined text-2xl ${isUploading ? 'animate-spin' : ''}`} style={isUploading ? { animationDuration: '3s' } : {}}>{cfg.icon}</span>
+                  <span
+                    className={`material-symbols-outlined text-2xl ${isUploading ? 'animate-spin' : ''}`}
+                    style={isUploading ? { animationDuration: '3s' } : {}}
+                  >
+                    {cfg.icon}
+                  </span>
                 </div>
 
                 <div className="flex-1 overflow-hidden">
                   <p className="text-sm font-bold truncate text-primary dark:text-dark-text">{item.name}</p>
                   <p className={`text-[10px] font-semibold uppercase tracking-tight mt-0.5 ${
-                    isUploading ? 'text-accent dark:text-dark-accent' : isError ? 'text-red-400' : isWarning ? 'text-amber-500' : 'text-on-surface-variant dark:text-dark-text-muted'
+                    isUploading ? 'text-accent dark:text-dark-accent'
+                    : isError   ? 'text-red-400'
+                    : isWarning ? 'text-amber-500'
+                    : 'text-on-surface-variant dark:text-dark-text-muted'
                   }`}>
                     {formatSize(item.size)}{item.speed ? ` • ${item.speed}` : ''}{item.statusText ? ` • ${item.statusText}` : ''}
                   </p>
@@ -105,7 +133,11 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onReorde
 
                 <div className="flex items-center gap-2">
                   {isError && (
-                    <button onClick={() => onRetry(item.id)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors">
+                    <button
+                      onClick={() => onRetry(item.id)}
+                      title="Retry this file"
+                      className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors"
+                    >
                       <span className="material-symbols-outlined text-slate-400 dark:text-dark-text-faint text-lg">refresh</span>
                     </button>
                   )}
@@ -120,6 +152,9 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onReorde
               )}
               {isWarning && item.statusText && (
                 <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">{item.statusText}</p>
+              )}
+              {isError && item.statusText && (
+                <p className="text-[11px] text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2 font-mono">{item.statusText}</p>
               )}
             </div>
           );

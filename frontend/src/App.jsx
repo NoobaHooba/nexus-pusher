@@ -9,6 +9,8 @@ import StagingBar from './components/StagingBar';
 import LdapPage from './components/LdapPage';
 import HistoryPage from './components/HistoryPage';
 import BrowserPage from './components/BrowserPage';
+import ToastContainer from './components/ToastContainer';
+import { ToastProvider, useToast } from './hooks/useToast';
 import { useUpload } from './hooks/useUpload';
 
 const NEXUS_LOGO = 'https://lh3.googleusercontent.com/aida/ADBb0uhJAgGgzva0ScflAODe8l4LMeZezCQyPlBcHfUAH-CAxD_MYx7wvT5O-ITn9Abyf95i_KO-P8Bncj9y9pRJ23POSAynBfpNXXiBJGDd9Z5h9G1ApNqrk7ui-cSUcJeebjx_V-WcR0LuUhaiFKy4Kw0IyjBU0lTYciWLKOpJJrgl2YrNM_jWcLJaDgIyMbsCsproxqG7eN_j4owNPpSb2t9u3IuRwR4tVYZOCiy6RdLlYI3uuhzHUK0yeYOt7-aWN5NOTGHDCCBs4Q';
@@ -30,7 +32,8 @@ function getInitialTheme() {
   } catch { return 'light'; }
 }
 
-export default function App() {
+function AppInner() {
+  const toast = useToast();
   const [activePage, setActivePage]     = useState('upload');
   const [activeRepo, setActiveRepo]     = useState('npm');
   const [showSettings, setShowSettings] = useState(false);
@@ -45,14 +48,10 @@ export default function App() {
 
   const repoName = repoNames[activeRepo] || '';
 
-  // Sync theme class to <html>
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
+    if (theme === 'dark') root.classList.add('dark');
+    else root.classList.remove('dark');
     try { localStorage.setItem(THEME_KEY, theme); } catch (_) {}
   }, [theme]);
 
@@ -60,8 +59,8 @@ export default function App() {
 
   const {
     staged, stagedSize, stageFiles, removeStaged, cancelStaged, pushStaged,
-    queue, totalSize, estimatedTime, clearCompleted, retryItem, reorderQueue,
-  } = useUpload(settings, activeRepo, repoName, extraFields);
+    queue, totalSize, estimatedTime, clearCompleted, retryItem, retryAllFailed, reorderQueue,
+  } = useUpload(settings, activeRepo, repoName, extraFields, toast);
 
   useEffect(() => {
     if (!settings.nexusUrl) setShowSettings(true);
@@ -71,6 +70,7 @@ export default function App() {
     setSettings(s);
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
     setShowSettings(false);
+    toast.success('Settings saved & connection verified');
   };
 
   const handleRepoNameChange = (type, name) => {
@@ -130,6 +130,7 @@ export default function App() {
                   queue={queue}
                   onClearCompleted={clearCompleted}
                   onRetry={retryItem}
+                  onRetryAllFailed={retryAllFailed}
                   onReorder={reorderQueue}
                 />
               </div>
@@ -172,6 +173,16 @@ export default function App() {
           onClose={() => setShowSettings(false)}
         />
       )}
+
+      <ToastContainer />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <AppInner />
+    </ToastProvider>
   );
 }

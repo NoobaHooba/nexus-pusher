@@ -27,7 +27,7 @@ function saveToHistory(item) {
   } catch (_) { /* storage full — silently skip */ }
 }
 
-export function useUpload(settings, repoType, repoName, extraFields) {
+export function useUpload(settings, repoType, repoName, extraFields, toast) {
   const [staged, setStaged]     = useState([]);
   const [queue,  setQueue]      = useState([]);
   const processingRef           = useRef(false);
@@ -59,6 +59,7 @@ export function useUpload(settings, repoType, repoName, extraFields) {
         processingRef.current = false;
         const patch = { status: 'error', statusText: 'Nexus URL not set — open Settings' };
         saveToHistory({ ...item, ...patch });
+        toast?.error('Nexus URL not configured', { title: item.name });
         setTimeout(processNext, 0);
         return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
       }
@@ -67,6 +68,7 @@ export function useUpload(settings, repoType, repoName, extraFields) {
         processingRef.current = false;
         const patch = { status: 'error', statusText: 'Repository name not set' };
         saveToHistory({ ...item, ...patch });
+        toast?.error('Repository name not set', { title: item.name });
         setTimeout(processNext, 0);
         return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
       }
@@ -76,6 +78,7 @@ export function useUpload(settings, repoType, repoName, extraFields) {
         processingRef.current = false;
         const patch = { status: 'error', statusText: `Unknown repo type: ${item.repoType}` };
         saveToHistory({ ...item, ...patch });
+        toast?.error(`Unknown repo type: ${item.repoType}`, { title: item.name });
         setTimeout(processNext, 0);
         return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
       }
@@ -96,10 +99,15 @@ export function useUpload(settings, repoType, repoName, extraFields) {
           const patch = { status: 'done', progress: 100, statusText: 'Successful', nexusUiUrl, directUrl };
           updateItem(item.id, patch);
           saveToHistory({ ...item, ...patch });
+          toast?.success(`Pushed to ${item.repoName}`, {
+            title: item.name,
+            ...(nexusUiUrl ? { action: { label: 'View in Nexus', onClick: () => window.open(nexusUiUrl, '_blank') } } : {}),
+          });
         } catch (err) {
           const patch = { status: 'error', statusText: err.message };
           updateItem(item.id, patch);
           saveToHistory({ ...item, ...patch });
+          toast?.error(err.message, { title: item.name, duration: 7000 });
         } finally {
           processingRef.current = false;
           processNext();
@@ -110,7 +118,7 @@ export function useUpload(settings, repoType, repoName, extraFields) {
         i.id === item.id ? { ...i, status: 'uploading', progress: 0 } : i
       );
     });
-  }, [updateItem]);
+  }, [updateItem, toast]);
 
   const stageFiles = useCallback((files) => {
     const newItems = files.map(f => ({
@@ -133,7 +141,6 @@ export function useUpload(settings, repoType, repoName, extraFields) {
   const pushStaged = useCallback(() => {
     setStaged(currentStaged => {
       if (currentStaged.length === 0) return currentStaged;
-
       const newItems = currentStaged.map(s => ({
         ...s,
         status:      'pending',
@@ -144,12 +151,12 @@ export function useUpload(settings, repoType, repoName, extraFields) {
         settings:    { ...settings },
         extraFields: { ...extraFields },
       }));
-
       setQueue(q => [...q, ...newItems]);
       setTimeout(processNext, 0);
+      toast?.info(`Queued ${currentStaged.length} file${currentStaged.length !== 1 ? 's' : ''} for upload`);
       return [];
     });
-  }, [processNext, repoType, repoName, settings, extraFields]);
+  }, [processNext, repoType, repoName, settings, extraFields, toast]);
 
   const clearCompleted = useCallback(() => {
     setQueue(q => q.filter(i => i.status !== 'done'));
@@ -162,17 +169,25 @@ export function useUpload(settings, repoType, repoName, extraFields) {
     setTimeout(processNext, 0);
   }, [processNext]);
 
-  /**
-   * Reorder queue: move a pending item to a new index among pending items.
-   * Active (uploading/done/error) items stay in place.
-   */
+  /** Retry every item currently in error state */
+  const retryAllFailed = useCallback(() => {
+    setQueue(q => {
+      const failedCount = q.filter(i => i.status === 'error').length;
+      if (failedCount === 0) return q;
+      toast?.info(`Retrying ${failedCount} failed file${failedCount !== 1 ? 's' : ''}…`);
+      return q.map(i =>
+        i.status === 'error' ? { ...i, status: 'pending', statusText: 'Waiting', progress: 0 } : i
+      );
+    });
+    setTimeout(processNext, 0);
+  }, [processNext, toast]);
+
   const reorderQueue = useCallback((fromId, toId) => {
     setQueue(q => {
       if (fromId === toId) return q;
       const fromIdx = q.findIndex(i => i.id === fromId);
       const toIdx   = q.findIndex(i => i.id === toId);
       if (fromIdx === -1 || toIdx === -1) return q;
-      // Only allow reordering pending items
       if (q[fromIdx].status !== 'pending' || q[toIdx].status !== 'pending') return q;
       const next = [...q];
       const [moved] = next.splice(fromIdx, 1);
@@ -183,6 +198,6 @@ export function useUpload(settings, repoType, repoName, extraFields) {
 
   return {
     staged, stagedSize, stageFiles, removeStaged, cancelStaged, pushStaged,
-    queue, totalSize, estimatedTime, clearCompleted, retryItem, reorderQueue,
+    queue, totalSize, estimatedTime, clearCompleted, retryItem, retryAllFailed, reorderQueue,
   };
 }
