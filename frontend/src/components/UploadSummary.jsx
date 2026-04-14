@@ -1,35 +1,82 @@
 import React from 'react';
+import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 
+// ── formatters ──────────────────────────────────────────────────────────────
 function formatSize(bytes) {
-  if (bytes === 0) return '0 B';
+  if (bytes <= 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  const i = Math.floor(Math.log(Math.max(bytes, 1)) / Math.log(k));
+  const val = bytes / Math.pow(k, i);
+  return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${sizes[i]}`;
 }
 
 function formatTime(seconds) {
-  if (!seconds || seconds === Infinity) return '—';
+  if (!seconds || seconds <= 0 || !isFinite(seconds)) return '—';
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
+// ── AnimatedStat ─────────────────────────────────────────────────────────────
+// Wraps a single stat value with a spring counter + a subtle scale-pop on change.
+function AnimatedStat({ label, value, formatter, accent = false }) {
+  const animated = useAnimatedNumber(typeof value === 'number' ? value : 0, {
+    stiffness: 90,
+    damping: 16,
+    precision: typeof value === 'number' && value > 1_000_000 ? 1000 : 0.5,
+  });
+
+  const displayed = formatter(animated);
+
+  return (
+    <div>
+      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-dark-text-faint mb-2">
+        {label}
+      </p>
+      <p
+        key={displayed} // re-trigger transition when the formatted string changes
+        className={`text-2xl font-extrabold tabular-nums transition-all duration-150
+          ${ accent ? 'text-accent dark:text-dark-accent' : 'text-primary dark:text-dark-text' }
+          animate-[stat-pop_150ms_ease-out]
+        `}
+      >
+        {displayed}
+      </p>
+    </div>
+  );
+}
+
 export default function UploadSummary({ totalSize, estimatedTime, activeFormat }) {
   return (
     <div>
-      <h5 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint mb-4">Upload Summary</h5>
+      <style>{`
+        @keyframes stat-pop {
+          0%   { transform: scale(1.05); }
+          100% { transform: scale(1); }
+        }
+      `}</style>
+
+      <h5 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint mb-4">
+        Upload Summary
+      </h5>
+
       <div className="grid grid-cols-3 gap-8 bg-white dark:bg-dark-surface p-8 rounded-3xl border border-slate-50 dark:border-dark-border shadow-sm">
+        <AnimatedStat
+          label="Queue Size"
+          value={totalSize}
+          formatter={formatSize}
+        />
+        <AnimatedStat
+          label="Estimated Time"
+          value={estimatedTime}
+          formatter={formatTime}
+        />
+        {/* Active format is text, not a number — just render it directly */}
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-dark-text-faint mb-2">Queue Size</p>
-          <p className="text-2xl font-extrabold text-primary dark:text-dark-text">{formatSize(totalSize)}</p>
-        </div>
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-dark-text-faint mb-2">Estimated Time</p>
-          <p className="text-2xl font-extrabold text-primary dark:text-dark-text">{formatTime(estimatedTime)}</p>
-        </div>
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-dark-text-faint mb-2">Active Format</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-dark-text-faint mb-2">
+            Active Format
+          </p>
           <p className="text-2xl font-extrabold text-accent dark:text-dark-accent">{activeFormat}</p>
         </div>
       </div>

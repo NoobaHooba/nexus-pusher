@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 
 const STATUS_CONFIG = {
   pending:   { label: 'Pending',   bgClass: 'bg-slate-100 dark:bg-dark-surface-2 text-slate-500 dark:text-dark-text-muted', iconBg: 'bg-slate-50 dark:bg-dark-surface-2 text-slate-400 dark:text-dark-text-faint', icon: 'description',  cardClass: 'border-slate-50 dark:border-dark-border' },
@@ -14,6 +15,74 @@ function formatSize(bytes) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+// ── Inline SVG empty-state illustration ──────────────────────────────────────
+function EmptyStateIllustration() {
+  return (
+    <svg
+      viewBox="0 0 160 120"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="w-40 h-32 mb-6"
+      aria-hidden="true"
+    >
+      {/* Shadow ellipse */}
+      <ellipse cx="80" cy="108" rx="44" ry="6" fill="currentColor" className="text-slate-100 dark:text-dark-border" />
+
+      {/* Back box */}
+      <rect x="52" y="34" width="62" height="52" rx="6" fill="currentColor" className="text-slate-100 dark:text-dark-surface-2" />
+      <rect x="52" y="34" width="62" height="10" rx="6" fill="currentColor" className="text-slate-200 dark:text-dark-border" />
+      <rect x="56" y="38" width="8" height="2" rx="1" fill="currentColor" className="text-slate-300 dark:text-dark-text-faint" />
+      <rect x="68" y="38" width="12" height="2" rx="1" fill="currentColor" className="text-slate-300 dark:text-dark-text-faint" />
+
+      {/* Front box */}
+      <rect x="40" y="44" width="64" height="52" rx="6" fill="white" className="dark:text-dark-surface" stroke="currentColor" strokeWidth="1.5" style={{stroke: 'var(--tw-ring-color, #e2e8f0)'}} />
+      <rect
+        x="40" y="44" width="64" height="52" rx="6"
+        fill="none"
+        className="text-slate-200 dark:text-dark-border"
+        stroke="currentColor" strokeWidth="1.5"
+      />
+
+      {/* Lines inside front box */}
+      <rect x="50" y="60" width="28" height="3" rx="1.5" fill="currentColor" className="text-slate-200 dark:text-dark-border" />
+      <rect x="50" y="67" width="20" height="3" rx="1.5" fill="currentColor" className="text-slate-200 dark:text-dark-border" />
+      <rect x="50" y="74" width="24" height="3" rx="1.5" fill="currentColor" className="text-slate-200 dark:text-dark-border" />
+
+      {/* Upload arrow — green accent */}
+      <circle cx="110" cy="52" r="14" fill="currentColor" className="text-accent-dim dark:text-dark-accent-dim" />
+      <path
+        d="M110 59 L110 47 M106 51 L110 47 L114 51"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-accent dark:text-dark-accent"
+      />
+
+      {/* Dashed drop hint */}
+      <rect
+        x="40" y="44" width="64" height="52" rx="6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeDasharray="4 3"
+        className="text-slate-200 dark:text-dark-border opacity-60"
+      />
+    </svg>
+  );
+}
+
+// ── Animated file count badge in the queue header ────────────────────────────
+function QueueCountBadge({ count }) {
+  const animated = useAnimatedNumber(count, { stiffness: 200, damping: 22, precision: 0.5 });
+  if (count === 0) return null;
+  return (
+    <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-accent/10 dark:bg-dark-accent/10 text-accent dark:text-dark-accent text-[10px] font-extrabold tabular-nums">
+      {Math.round(animated)}
+    </span>
+  );
 }
 
 export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryAllFailed, onReorder }) {
@@ -32,7 +101,10 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
       {/* Header */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
-          <h5 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint">Live Process Queue</h5>
+          <h5 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint">
+            Live Process Queue
+          </h5>
+          <QueueCountBadge count={queue.length} />
           {queue.some(i => i.status === 'pending') && (
             <span className="text-[10px] text-slate-400 dark:text-dark-text-faint font-medium">(drag to reorder)</span>
           )}
@@ -53,12 +125,14 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
         </div>
       </div>
 
-      {/* Empty state */}
+      {/* ── Empty state illustration ── */}
       {queue.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-slate-300 dark:text-dark-text-faint">
-          <span className="material-symbols-outlined text-5xl mb-3">inbox</span>
-          <p className="text-sm font-semibold">No uploads yet</p>
-          <p className="text-xs mt-1 opacity-70">Drop your first artifact to get started</p>
+        <div className="flex flex-col items-center justify-center py-10 select-none">
+          <EmptyStateIllustration />
+          <p className="text-sm font-bold text-slate-400 dark:text-dark-text-muted">Nothing in the queue</p>
+          <p className="text-xs text-slate-300 dark:text-dark-text-faint mt-1 max-w-[200px] text-center leading-relaxed">
+            Drop your first artifact into the zone to get started
+          </p>
         </div>
       )}
 
