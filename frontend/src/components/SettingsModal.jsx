@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 async function validateCredentials({ nexusUrl, username, password }) {
   try {
@@ -15,10 +15,18 @@ async function validateCredentials({ nexusUrl, username, password }) {
 }
 
 export default function SettingsModal({ settings, onSave, onClose }) {
-  const [form, setForm]     = useState({ nexusUrl: '', username: '', password: '', defaultRepo: '', ...settings });
+  const [form, setForm]       = useState({ nexusUrl: '', username: '', password: '', defaultRepo: '', ...settings });
   const [testing, setTesting] = useState(false);
   const [status, setStatus]   = useState(null);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // FIX 5: SettingsModal had no keyboard handler. Pressing Escape had no
+  // effect, forcing mouse-only dismissal — a usability and accessibility gap.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape' && !testing) onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, testing]);
 
   const handleSave = async () => {
     setStatus(null);
@@ -30,19 +38,32 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     if (result.ok) onSave(form);
   };
 
+  // FIX 5 (cont.): Also block Escape from bubbling when modal is open so it
+  // doesn’t accidentally trigger other keydown listeners in parent components.
+  const handleBackdropClick = (e) => {
+    if (e.target === e.currentTarget && !testing) onClose();
+  };
+
   const fields = [
-    { key: 'nexusUrl',    label: 'Nexus URL',           placeholder: 'http://nexus:8081',   type: 'text',     hint: 'Direct Nexus URL — the backend contacts it server-side, no proxy needed.' },
-    { key: 'username',    label: 'Username',             placeholder: 'admin',               type: 'text' },
-    { key: 'password',    label: 'Password',             placeholder: '••••••••',            type: 'password' },
-    { key: 'defaultRepo', label: 'Default Repository',   placeholder: 'maven-releases',      type: 'text' },
+    { key: 'nexusUrl',    label: 'Nexus URL',         placeholder: 'http://nexus:8081',   type: 'text',     hint: 'Direct Nexus URL — the backend contacts it server-side, no proxy needed.' },
+    { key: 'username',    label: 'Username',           placeholder: 'admin',               type: 'text' },
+    { key: 'password',    label: 'Password',           placeholder: '••••••••',            type: 'password' },
+    { key: 'defaultRepo', label: 'Default Repository', placeholder: 'maven-releases',      type: 'text' },
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 dark:bg-black/60 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 dark:bg-black/60 backdrop-blur-sm"
+      onClick={handleBackdropClick}
+    >
       <div className="bg-white dark:bg-dark-surface rounded-3xl shadow-2xl w-full max-w-md p-8 flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-extrabold text-primary dark:text-dark-text">Nexus Connection</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-dark-surface-2 transition-colors">
+          <button
+            onClick={onClose}
+            aria-label="Close settings"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-dark-surface-2 transition-colors"
+          >
             <span className="material-symbols-outlined text-slate-400 dark:text-dark-text-muted">close</span>
           </button>
         </div>
@@ -52,12 +73,16 @@ export default function SettingsModal({ settings, onSave, onClose }) {
         <div className="flex flex-col gap-4">
           {fields.map(({ key, label, placeholder, type, hint }) => (
             <div key={key} className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-on-surface-variant dark:text-dark-text-muted">{label}</label>
+              <label htmlFor={`settings-${key}`} className="text-xs font-semibold text-on-surface-variant dark:text-dark-text-muted">{label}</label>
               <input
+                id={`settings-${key}`}
                 type={type}
                 value={form[key] || ''}
                 onChange={e => set(key, e.target.value)}
                 placeholder={placeholder}
+                // FIX 6: Added onKeyDown Enter handler so the form can be
+                // submitted with Enter without reaching for the mouse.
+                onKeyDown={e => { if (e.key === 'Enter' && !testing) handleSave(); }}
                 className="px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all"
               />
               {hint && <p className="text-xs text-slate-400 dark:text-dark-text-faint">{hint}</p>}

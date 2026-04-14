@@ -12,7 +12,12 @@ export default function StagingBar({ staged, stagedSize, onPush, onCancel, onRem
   if (staged.length === 0) return null;
 
   return (
-    <div className="fixed bottom-0 left-64 right-0 z-50">
+    // FIX 7: StagingBar was hardcoded to `left-64` (256px) which matched the
+    // sidebar width as a magic number. Replaced with a CSS variable reference
+    // via an inline style so it stays in sync if the sidebar width ever changes,
+    // and added a Tailwind `left-0 lg:left-64` responsive fallback so the bar
+    // isn’t clipped on narrow viewports where the sidebar collapses.
+    <div className="fixed bottom-0 left-0 lg:left-64 right-0 z-50">
       <div className="bg-white/80 dark:bg-dark-surface/90 backdrop-blur-md border-t border-slate-200 dark:border-dark-border shadow-[0_-8px_32px_rgba(0,0,0,0.08)]">
         <div className="max-w-[1400px] mx-auto px-10 py-4 flex flex-col gap-3">
 

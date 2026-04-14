@@ -1,27 +1,28 @@
 import React from 'react';
 import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 
-// ── formatters ──────────────────────────────────────────────────────────────
 function formatSize(bytes) {
-  if (bytes <= 0) return '0 B';
+  // FIX 3: Guard against NaN/Infinity that caused "NaN B" to flash on first
+  // render before the spring settled, and on edge-case empty queue states.
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(Math.max(bytes, 1)) / Math.log(k));
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
   const val = bytes / Math.pow(k, i);
   return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${sizes[i]}`;
 }
 
 function formatTime(seconds) {
-  if (!seconds || seconds <= 0 || !isFinite(seconds)) return '—';
+  // FIX 3: Guard against NaN — useAnimatedNumber passes floats during
+  // interpolation; formatTime must handle any non-finite value gracefully.
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—';
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-// ── AnimatedStat ─────────────────────────────────────────────────────────────
-// Wraps a single stat value with a spring counter + a subtle scale-pop on change.
 function AnimatedStat({ label, value, formatter, accent = false }) {
-  const animated = useAnimatedNumber(typeof value === 'number' ? value : 0, {
+  const animated = useAnimatedNumber(typeof value === 'number' && Number.isFinite(value) ? value : 0, {
     stiffness: 90,
     damping: 16,
     precision: typeof value === 'number' && value > 1_000_000 ? 1000 : 0.5,
@@ -35,7 +36,6 @@ function AnimatedStat({ label, value, formatter, accent = false }) {
         {label}
       </p>
       <p
-        key={displayed} // re-trigger transition when the formatted string changes
         className={`text-2xl font-extrabold tabular-nums transition-all duration-150
           ${ accent ? 'text-accent dark:text-dark-accent' : 'text-primary dark:text-dark-text' }
           animate-[stat-pop_150ms_ease-out]
@@ -72,7 +72,6 @@ export default function UploadSummary({ totalSize, estimatedTime, activeFormat }
           value={estimatedTime}
           formatter={formatTime}
         />
-        {/* Active format is text, not a number — just render it directly */}
         <div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-dark-text-faint mb-2">
             Active Format

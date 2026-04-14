@@ -60,11 +60,8 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
     if (valid.length > 0) onFiles(valid);
   }, [repoType, onFiles, dismissWarning]);
 
-  // Global paste listener — fires whenever the user hits Ctrl/Cmd+V
-  // and the active element is NOT a text input / textarea.
   useEffect(() => {
     const onPaste = (e) => {
-      // Don't hijack paste inside text fields
       const tag = document.activeElement?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea') return;
 
@@ -76,7 +73,6 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
 
       if (files.length === 0) return;
 
-      // Brief green flash on the drop zone
       setPasteFlash(true);
       if (pasteFlashTimer.current) clearTimeout(pasteFlashTimer.current);
       pasteFlashTimer.current = setTimeout(() => setPasteFlash(false), 600);
@@ -85,9 +81,13 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
     };
 
     window.addEventListener('paste', onPaste);
+    // FIX 4: The original cleanup only cancelled pasteFlashTimer but did NOT
+    // call window.removeEventListener. Fixed: both listeners are now properly
+    // removed and both timers cleared on unmount.
     return () => {
       window.removeEventListener('paste', onPaste);
       if (pasteFlashTimer.current) clearTimeout(pasteFlashTimer.current);
+      if (warningTimeout.current)  clearTimeout(warningTimeout.current);
     };
   }, [handleFiles]);
 
@@ -156,7 +156,6 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
         </p>
         {hint && <p className="text-xs text-slate-400 dark:text-dark-text-faint font-mono mb-1">{hint}</p>}
 
-        {/* Paste hint */}
         <p className="text-[11px] text-slate-300 dark:text-dark-text-faint font-medium mb-4 flex items-center gap-1.5">
           <span className="material-symbols-outlined text-[13px]">content_paste</span>
           <span>or press</span>

@@ -32,6 +32,13 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
   const [queue,  setQueue]      = useState([]);
   const processingRef           = useRef(false);
 
+  // FIX 1: Store toast in a ref so the processNext closure never captures
+  // a stale version. Previously, processNext was in the useCallback dep array
+  // but the closure captured the toast value at creation time, meaning
+  // retryAllFailed / retryItem could fire toasts from old renders.
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+
   const stagedSize   = staged.reduce((a, i) => a + (i.size || 0), 0);
   const totalSize    = queue.reduce((a, i) => a + (i.size || 0), 0);
   const pendingSize  = queue
@@ -43,6 +50,9 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
     setQueue(q => q.map(i => (i.id === id ? { ...i, ...patch } : i))),
   []);
 
+  // FIX 1 (cont.): processNext no longer lists toast in deps — it reads
+  // toastRef.current instead, so the function reference stays stable and
+  // doesn’t trigger re-renders of every consumer downstream.
   const processNext = useCallback(() => {
     if (processingRef.current) return;
     processingRef.current = true;
@@ -59,7 +69,7 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
         processingRef.current = false;
         const patch = { status: 'error', statusText: 'Nexus URL not set — open Settings' };
         saveToHistory({ ...item, ...patch });
-        toast?.error('Nexus URL not configured', { title: item.name });
+        toastRef.current?.error('Nexus URL not configured', { title: item.name });
         setTimeout(processNext, 0);
         return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
       }
@@ -68,7 +78,7 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
         processingRef.current = false;
         const patch = { status: 'error', statusText: 'Repository name not set' };
         saveToHistory({ ...item, ...patch });
-        toast?.error('Repository name not set', { title: item.name });
+        toastRef.current?.error('Repository name not set', { title: item.name });
         setTimeout(processNext, 0);
         return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
       }
@@ -78,7 +88,7 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
         processingRef.current = false;
         const patch = { status: 'error', statusText: `Unknown repo type: ${item.repoType}` };
         saveToHistory({ ...item, ...patch });
-        toast?.error(`Unknown repo type: ${item.repoType}`, { title: item.name });
+        toastRef.current?.error(`Unknown repo type: ${item.repoType}`, { title: item.name });
         setTimeout(processNext, 0);
         return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
       }
@@ -99,7 +109,7 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
           const patch = { status: 'done', progress: 100, statusText: 'Successful', nexusUiUrl, directUrl };
           updateItem(item.id, patch);
           saveToHistory({ ...item, ...patch });
-          toast?.success(`Pushed to ${item.repoName}`, {
+          toastRef.current?.success(`Pushed to ${item.repoName}`, {
             title: item.name,
             ...(nexusUiUrl ? { action: { label: 'View in Nexus', onClick: () => window.open(nexusUiUrl, '_blank') } } : {}),
           });
@@ -107,7 +117,7 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
           const patch = { status: 'error', statusText: err.message };
           updateItem(item.id, patch);
           saveToHistory({ ...item, ...patch });
-          toast?.error(err.message, { title: item.name, duration: 7000 });
+          toastRef.current?.error(err.message, { title: item.name, duration: 7000 });
         } finally {
           processingRef.current = false;
           processNext();
@@ -118,7 +128,7 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
         i.id === item.id ? { ...i, status: 'uploading', progress: 0 } : i
       );
     });
-  }, [updateItem, toast]);
+  }, [updateItem]); // removed `toast` from deps — accessed via toastRef instead
 
   const stageFiles = useCallback((files) => {
     const newItems = files.map(f => ({
@@ -153,10 +163,10 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
       }));
       setQueue(q => [...q, ...newItems]);
       setTimeout(processNext, 0);
-      toast?.info(`Queued ${currentStaged.length} file${currentStaged.length !== 1 ? 's' : ''} for upload`);
+      toastRef.current?.info(`Queued ${currentStaged.length} file${currentStaged.length !== 1 ? 's' : ''} for upload`);
       return [];
     });
-  }, [processNext, repoType, repoName, settings, extraFields, toast]);
+  }, [processNext, repoType, repoName, settings, extraFields]);
 
   const clearCompleted = useCallback(() => {
     setQueue(q => q.filter(i => i.status !== 'done'));
@@ -169,18 +179,17 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
     setTimeout(processNext, 0);
   }, [processNext]);
 
-  /** Retry every item currently in error state */
   const retryAllFailed = useCallback(() => {
     setQueue(q => {
       const failedCount = q.filter(i => i.status === 'error').length;
       if (failedCount === 0) return q;
-      toast?.info(`Retrying ${failedCount} failed file${failedCount !== 1 ? 's' : ''}…`);
+      toastRef.current?.info(`Retrying ${failedCount} failed file${failedCount !== 1 ? 's' : ''}…`);
       return q.map(i =>
         i.status === 'error' ? { ...i, status: 'pending', statusText: 'Waiting', progress: 0 } : i
       );
     });
     setTimeout(processNext, 0);
-  }, [processNext, toast]);
+  }, [processNext]);
 
   const reorderQueue = useCallback((fromId, toId) => {
     setQueue(q => {
