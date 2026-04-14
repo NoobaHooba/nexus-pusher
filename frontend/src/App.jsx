@@ -15,16 +15,26 @@ const NEXUS_LOGO = 'https://lh3.googleusercontent.com/aida/ADBb0uhJAgGgzva0ScflA
 
 const SETTINGS_KEY   = 'nexus-pusher-settings';
 const REPO_NAMES_KEY = 'nexus-pusher-repo-names';
+const THEME_KEY      = 'nexus-pusher-theme';
 
 function loadFromStorage(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) || fallback; }
   catch { return fallback; }
 }
 
+function getInitialTheme() {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === 'dark' || stored === 'light') return stored;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch { return 'light'; }
+}
+
 export default function App() {
   const [activePage, setActivePage]     = useState('upload');
   const [activeRepo, setActiveRepo]     = useState('npm');
   const [showSettings, setShowSettings] = useState(false);
+  const [theme, setTheme]               = useState(getInitialTheme);
   const [settings, setSettings] = useState(() =>
     loadFromStorage(SETTINGS_KEY, { nexusUrl: '', username: '', password: '' })
   );
@@ -34,6 +44,19 @@ export default function App() {
   const [extraFields, setExtraFields] = useState({});
 
   const repoName = repoNames[activeRepo] || '';
+
+  // Sync theme class to <html>
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    try { localStorage.setItem(THEME_KEY, theme); } catch (_) {}
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
 
   const {
     staged, stagedSize, stageFiles, removeStaged, cancelStaged, pushStaged,
@@ -57,13 +80,15 @@ export default function App() {
   };
 
   return (
-    <div className="bg-surface text-on-surface min-h-screen selection:bg-accent selection:text-white">
+    <div className="bg-surface dark:bg-dark-bg text-on-surface dark:text-dark-text min-h-screen selection:bg-accent selection:text-white">
       <Sidebar
         nexusLogo={NEXUS_LOGO}
         onOpenSettings={() => setShowSettings(true)}
         activePage={activePage}
         onNavigate={setActivePage}
         settings={settings}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
 
       <main className="ml-64 p-10 flex flex-col gap-12 max-w-[1400px]">
@@ -71,8 +96,8 @@ export default function App() {
         {activePage === 'upload' && (
           <>
             <section>
-              <h2 className="text-5xl font-extrabold tracking-tight text-primary mb-4">Upload Assets</h2>
-              <p className="text-on-surface-variant text-lg max-w-2xl leading-relaxed">
+              <h2 className="text-5xl font-extrabold tracking-tight text-primary dark:text-dark-text mb-4">Upload Assets</h2>
+              <p className="text-on-surface-variant dark:text-dark-text-muted text-lg max-w-2xl leading-relaxed">
                 Push repository builds, container images, and binary artifacts to the Nexus network.
                 Select your target repository type and monitor deployment status.
               </p>
@@ -116,17 +141,17 @@ export default function App() {
         {activePage === 'history' && <HistoryPage />}
         {activePage === 'ldap'    && <LdapPage settings={settings} />}
 
-        <footer className="mt-auto py-10 border-t border-slate-100 flex justify-between items-center">
+        <footer className="mt-auto py-10 border-t border-slate-100 dark:border-dark-border flex justify-between items-center">
           <div className="flex items-center gap-4">
             <img src={NEXUS_LOGO} alt="" className="w-5 h-5 grayscale opacity-20" />
-            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-300">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-300 dark:text-dark-text-faint">
               &copy; {new Date().getFullYear()} Nexus Pusher. Architectural Precision.
             </p>
           </div>
           <div className="flex gap-10">
-            <a href="#" className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 hover:text-accent transition-colors">Security</a>
-            <a href="#" className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 hover:text-accent transition-colors">Privacy</a>
-            <a href="#" className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 hover:text-accent">System Status</a>
+            <a href="#" className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 dark:text-dark-text-faint hover:text-accent transition-colors">Security</a>
+            <a href="#" className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 dark:text-dark-text-faint hover:text-accent transition-colors">Privacy</a>
+            <a href="#" className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 dark:text-dark-text-faint hover:text-accent">System Status</a>
           </div>
         </footer>
       </main>

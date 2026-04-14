@@ -16,8 +16,8 @@ export default function RepoSelector({ active, onChange, repoNames, onRepoNameCh
   return (
     <section>
       <div className="flex items-center justify-between mb-8">
-        <h3 className="text-xl font-bold tracking-tight text-primary">Target Repositories</h3>
-        <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">9 Available Types</span>
+        <h3 className="text-xl font-bold tracking-tight text-primary dark:text-dark-text">Target Repositories</h3>
+        <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint">9 Available Types</span>
       </div>
 
       <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-6">
@@ -27,35 +27,34 @@ export default function RepoSelector({ active, onChange, repoNames, onRepoNameCh
             <button
               key={id}
               onClick={() => onChange(id)}
-              className={`group flex flex-col items-center gap-3 p-5 rounded-2xl bg-white transition-all duration-300 ${
+              className={`group flex flex-col items-center gap-3 p-5 rounded-2xl bg-white dark:bg-dark-surface transition-all duration-300 ${
                 isActive
                   ? 'border-2 border-accent shadow-xl shadow-accent/5'
-                  : 'border border-transparent hover:border-accent/20 hover:shadow-xl hover:shadow-accent/5'
+                  : 'border border-transparent dark:border-dark-border hover:border-accent/20 hover:shadow-xl hover:shadow-accent/5'
               }`}
             >
               <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
-                isActive ? 'bg-accent-dim' : 'bg-slate-50 group-hover:bg-accent-dim'
+                isActive ? 'bg-accent-dim dark:bg-dark-accent-dim' : 'bg-slate-50 dark:bg-dark-surface-2 group-hover:bg-accent-dim dark:group-hover:bg-dark-accent-dim'
               }`}>
                 <span className={`material-symbols-outlined transition-colors ${
-                  isActive ? 'text-accent' : 'text-primary group-hover:text-accent'
+                  isActive ? 'text-accent dark:text-dark-accent' : 'text-primary dark:text-dark-text-muted group-hover:text-accent dark:group-hover:text-dark-accent'
                 }`}>{icon}</span>
               </div>
               <span className={`text-[11px] font-bold uppercase tracking-widest transition-colors ${
-                isActive ? 'text-primary' : 'text-on-surface-variant group-hover:text-primary'
+                isActive ? 'text-primary dark:text-dark-text' : 'text-on-surface-variant dark:text-dark-text-muted group-hover:text-primary dark:group-hover:text-dark-text'
               }`}>{label}</span>
             </button>
           );
         })}
       </div>
 
-      {/* Inline repo name input — shown only for the active type */}
       {active && (() => {
         const type = REPO_TYPES.find(r => r.id === active);
         return (
-          <div className="mt-6 flex items-center gap-4 bg-white border border-slate-100 rounded-2xl px-6 py-4 shadow-sm">
-            <span className="material-symbols-outlined text-accent text-[20px]">dns</span>
+          <div className="mt-6 flex items-center gap-4 bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-2xl px-6 py-4 shadow-sm">
+            <span className="material-symbols-outlined text-accent dark:text-dark-accent text-[20px]">dns</span>
             <div className="flex flex-col gap-0.5 flex-1">
-              <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+              <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">
                 {type.label} Repository Name
               </label>
               <input
@@ -63,10 +62,10 @@ export default function RepoSelector({ active, onChange, repoNames, onRepoNameCh
                 value={repoNames[active] || ''}
                 onChange={e => onRepoNameChange(active, e.target.value)}
                 placeholder={type.placeholder}
-                className="text-sm font-semibold text-primary bg-transparent border-none outline-none placeholder:text-slate-300 w-full"
+                className="text-sm font-semibold text-primary dark:text-dark-text bg-transparent border-none outline-none placeholder:text-slate-300 dark:placeholder:text-dark-text-faint w-full"
               />
             </div>
-            <span className="text-[10px] font-medium text-slate-300 whitespace-nowrap">
+            <span className="text-[10px] font-medium text-slate-300 dark:text-dark-text-faint whitespace-nowrap">
               Nexus repo name
             </span>
           </div>

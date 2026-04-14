@@ -18,19 +18,19 @@ function formatTime(seconds) {
 export default function UploadSummary({ totalSize, estimatedTime, activeFormat }) {
   return (
     <div>
-      <h5 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-4">Upload Summary</h5>
-      <div className="grid grid-cols-3 gap-8 bg-white p-8 rounded-3xl border border-slate-50 shadow-sm">
+      <h5 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint mb-4">Upload Summary</h5>
+      <div className="grid grid-cols-3 gap-8 bg-white dark:bg-dark-surface p-8 rounded-3xl border border-slate-50 dark:border-dark-border shadow-sm">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Queue Size</p>
-          <p className="text-2xl font-extrabold text-primary">{formatSize(totalSize)}</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-dark-text-faint mb-2">Queue Size</p>
+          <p className="text-2xl font-extrabold text-primary dark:text-dark-text">{formatSize(totalSize)}</p>
         </div>
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Estimated Time</p>
-          <p className="text-2xl font-extrabold text-primary">{formatTime(estimatedTime)}</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-dark-text-faint mb-2">Estimated Time</p>
+          <p className="text-2xl font-extrabold text-primary dark:text-dark-text">{formatTime(estimatedTime)}</p>
         </div>
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Active Format</p>
-          <p className="text-2xl font-extrabold text-accent">{activeFormat}</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-dark-text-faint mb-2">Active Format</p>
+          <p className="text-2xl font-extrabold text-accent dark:text-dark-accent">{activeFormat}</p>
         </div>
       </div>
     </div>

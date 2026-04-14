@@ -10,6 +10,19 @@ body {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
+/* Light scrollbar */
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+
+/* Dark scrollbar */
+.dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; }
+
+/* Smooth theme transitions on key properties only */
+body, aside, main, header, footer,
+.theme-transition {
+  transition:
+    background-color 200ms ease,
+    border-color     200ms ease,
+    color            200ms ease;
+}
