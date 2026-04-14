@@ -11,16 +11,16 @@ function saveToHistory(item) {
   try {
     const existing = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
     const entry = {
-      id:          item.id,
-      name:        item.name,
-      size:        item.size,
-      repoType:    item.repoType,
-      repoName:    item.repoName,
-      status:      item.status,
-      statusText:  item.statusText,
-      nexusUiUrl:  item.nexusUiUrl || null,
-      directUrl:   item.directUrl || null,
-      timestamp:   Date.now(),
+      id:         item.id,
+      name:       item.name,
+      size:       item.size,
+      repoType:   item.repoType,
+      repoName:   item.repoName,
+      status:     item.status,
+      statusText: item.statusText,
+      nexusUiUrl: item.nexusUiUrl || null,
+      directUrl:  item.directUrl  || null,
+      timestamp:  Date.now(),
     };
     const updated = [entry, ...existing].slice(0, MAX_HISTORY);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
@@ -28,15 +28,21 @@ function saveToHistory(item) {
 }
 
 export function useUpload(settings, repoType, repoName, extraFields) {
-  const [queue, setQueue] = useState([]);
-  const processingRef = useRef(false);
+  // staged  — files waiting for the user to confirm push
+  // queue   — files actively uploading / done / errored
+  const [staged, setStaged]     = useState([]);
+  const [queue,  setQueue]      = useState([]);
+  const processingRef           = useRef(false);
 
-  const totalSize = queue.reduce((acc, i) => acc + (i.size || 0), 0);
-  const pendingSize = queue
+  /* ─── derived sizes ──────────────────────────────────────────── */
+  const stagedSize   = staged.reduce((a, i) => a + (i.size || 0), 0);
+  const totalSize    = queue.reduce((a, i) => a + (i.size || 0), 0);
+  const pendingSize  = queue
     .filter(i => i.status === 'pending')
-    .reduce((acc, i) => acc + (i.size || 0), 0);
+    .reduce((a, i) => a + (i.size || 0), 0);
   const estimatedTime = pendingSize > 0 ? pendingSize / (5 * 1024 * 1024) : 0;
 
+  /* ─── queue helpers ──────────────────────────────────────────── */
   const updateItem = useCallback((id, patch) =>
     setQueue(q => q.map(i => (i.id === id ? { ...i, ...patch } : i))),
   []);
@@ -57,18 +63,16 @@ export function useUpload(settings, repoType, repoName, extraFields) {
         processingRef.current = false;
         const patch = { status: 'error', statusText: 'Nexus URL not set — open Settings' };
         saveToHistory({ ...item, ...patch });
-        const next = currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
         setTimeout(processNext, 0);
-        return next;
+        return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
       }
 
       if (!item.repoName) {
         processingRef.current = false;
-        const patch = { status: 'error', statusText: 'Repository name not set — enter it below the type selector' };
+        const patch = { status: 'error', statusText: 'Repository name not set' };
         saveToHistory({ ...item, ...patch });
-        const next = currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
         setTimeout(processNext, 0);
-        return next;
+        return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
       }
 
       const uploader = UPLOADERS[item.repoType];
@@ -76,25 +80,23 @@ export function useUpload(settings, repoType, repoName, extraFields) {
         processingRef.current = false;
         const patch = { status: 'error', statusText: `Unknown repo type: ${item.repoType}` };
         saveToHistory({ ...item, ...patch });
-        const next = currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
         setTimeout(processNext, 0);
-        return next;
+        return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
       }
 
       setTimeout(async () => {
         try {
           const result = await uploader({
-            nexusUrl:  item.settings.nexusUrl,
-            repo:      item.repoName,
-            username:  item.settings.username,
-            password:  item.settings.password,
-            file:      item.file,
-            extra:     item.extraFields,
+            nexusUrl:   item.settings.nexusUrl,
+            repo:       item.repoName,
+            username:   item.settings.username,
+            password:   item.settings.password,
+            file:       item.file,
+            extra:      item.extraFields,
             onProgress: (pct) => updateItem(item.id, { progress: pct }),
           });
-          // result may contain { nexusUiUrl, url } from the backend
           const nexusUiUrl = result?.nexusUiUrl || null;
-          const directUrl  = result?.url || null;
+          const directUrl  = result?.url         || null;
           const patch = { status: 'done', progress: 100, statusText: 'Successful', nexusUiUrl, directUrl };
           updateItem(item.id, patch);
           saveToHistory({ ...item, ...patch });
@@ -114,24 +116,51 @@ export function useUpload(settings, repoType, repoName, extraFields) {
     });
   }, [updateItem]);
 
-  const addFiles = useCallback((files) => {
+  /* ─── staging helpers ────────────────────────────────────────── */
+  // Add files to the staging area (does NOT start uploading)
+  const stageFiles = useCallback((files) => {
     const newItems = files.map(f => ({
-      id:          genId(),
-      file:        f,
-      name:        f.name,
-      size:        f.size,
-      status:      'pending',
-      progress:    0,
-      statusText:  'Waiting',
-      repoType,
-      repoName,
-      settings:    { ...settings },
-      extraFields: { ...extraFields },
+      id:   genId(),
+      file: f,
+      name: f.name,
+      size: f.size,
     }));
-    setQueue(q => [...q, ...newItems]);
-    setTimeout(processNext, 0);
+    setStaged(s => [...s, ...newItems]);
+  }, []);
+
+  // Remove a single file from staging
+  const removeStaged = useCallback((id) => {
+    setStaged(s => s.filter(i => i.id !== id));
+  }, []);
+
+  // Discard all staged files without uploading
+  const cancelStaged = useCallback(() => {
+    setStaged([]);
+  }, []);
+
+  // Commit all staged files → queue and start processing
+  const pushStaged = useCallback(() => {
+    setStaged(currentStaged => {
+      if (currentStaged.length === 0) return currentStaged;
+
+      const newItems = currentStaged.map(s => ({
+        ...s,
+        status:      'pending',
+        progress:    0,
+        statusText:  'Waiting',
+        repoType,
+        repoName,
+        settings:    { ...settings },
+        extraFields: { ...extraFields },
+      }));
+
+      setQueue(q => [...q, ...newItems]);
+      setTimeout(processNext, 0);
+      return []; // clear staging
+    });
   }, [processNext, repoType, repoName, settings, extraFields]);
 
+  /* ─── queue helpers (existing) ───────────────────────────────── */
   const clearCompleted = useCallback(() => {
     setQueue(q => q.filter(i => i.status !== 'done'));
   }, []);
@@ -143,5 +172,10 @@ export function useUpload(settings, repoType, repoName, extraFields) {
     setTimeout(processNext, 0);
   }, [processNext]);
 
-  return { queue, addFiles, clearCompleted, retryItem, totalSize, estimatedTime };
+  return {
+    // staging
+    staged, stagedSize, stageFiles, removeStaged, cancelStaged, pushStaged,
+    // queue
+    queue, totalSize, estimatedTime, clearCompleted, retryItem,
+  };
 }

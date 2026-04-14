@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import ExtraFieldsForm from './ExtraFieldsForm';
 
-export default function UploadZone({ onFiles, repoType, extraFields, onExtraChange }) {
+export default function UploadZone({ onFiles, repoType, extraFields, onExtraChange, stagedCount }) {
   const inputRef = useRef();
   const [dragging, setDragging] = useState(false);
 
@@ -31,16 +31,31 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
         }`}>
           <span className="material-symbols-outlined text-4xl text-accent">upload_file</span>
         </div>
+
         <h4 className="text-2xl font-bold text-primary mb-2">Drop artifacts or click to browse</h4>
-        <p className="text-on-surface-variant max-w-sm mb-8">Securely upload packages to your private Nexus repository</p>
+        <p className="text-on-surface-variant max-w-sm mb-4">
+          Files are staged before uploading — review and push when ready
+        </p>
+
+        {/* Staged count badge */}
+        {stagedCount > 0 && (
+          <div className="mb-6 flex items-center gap-2 px-4 py-2 bg-accent-dim/30 rounded-full">
+            <span className="material-symbols-outlined text-accent text-[16px]">inventory_2</span>
+            <span className="text-xs font-bold text-accent">
+              {stagedCount} file{stagedCount !== 1 ? 's' : ''} staged — see bar below to push
+            </span>
+          </div>
+        )}
+
         <button
           type="button"
           className="bg-primary text-white px-8 py-3.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-black transition-colors shadow-lg shadow-black/5"
           onClick={(e) => { e.stopPropagation(); inputRef.current.click(); }}
         >
           <span className="material-symbols-outlined text-xl">add</span>
-          Select Local Assets
+          {stagedCount > 0 ? 'Add More Files' : 'Select Local Assets'}
         </button>
+
         <input
           ref={inputRef}
           type="file"
