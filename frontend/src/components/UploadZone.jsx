@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import ExtraFieldsForm from './ExtraFieldsForm';
 
 const REPO_EXTENSIONS = {
@@ -36,11 +36,13 @@ function validateFiles(files, repoType) {
 }
 
 export default function UploadZone({ onFiles, repoType, extraFields, onExtraChange, stagedCount }) {
-  const inputRef       = useRef();
+  const inputRef            = useRef();
   const [dragging, setDragging]   = useState(false);
   const [warnings, setWarnings]   = useState([]);
   const [accepted, setAccepted]   = useState(0);
-  const warningTimeout = useRef(null);
+  const [pasteFlash, setPasteFlash] = useState(false);
+  const warningTimeout  = useRef(null);
+  const pasteFlashTimer = useRef(null);
 
   const dismissWarning = useCallback(() => { setWarnings([]); setAccepted(0); }, []);
 
@@ -57,6 +59,37 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
     }
     if (valid.length > 0) onFiles(valid);
   }, [repoType, onFiles, dismissWarning]);
+
+  // Global paste listener — fires whenever the user hits Ctrl/Cmd+V
+  // and the active element is NOT a text input / textarea.
+  useEffect(() => {
+    const onPaste = (e) => {
+      // Don't hijack paste inside text fields
+      const tag = document.activeElement?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const files = items
+        .filter(item => item.kind === 'file')
+        .map(item => item.getAsFile())
+        .filter(Boolean);
+
+      if (files.length === 0) return;
+
+      // Brief green flash on the drop zone
+      setPasteFlash(true);
+      if (pasteFlashTimer.current) clearTimeout(pasteFlashTimer.current);
+      pasteFlashTimer.current = setTimeout(() => setPasteFlash(false), 600);
+
+      handleFiles(files);
+    };
+
+    window.addEventListener('paste', onPaste);
+    return () => {
+      window.removeEventListener('paste', onPaste);
+      if (pasteFlashTimer.current) clearTimeout(pasteFlashTimer.current);
+    };
+  }, [handleFiles]);
 
   const handleDrop = (e) => {
     e.preventDefault();
@@ -99,23 +132,43 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
         onClick={() => inputRef.current.click()}
-        className={`relative group border-2 border-dashed rounded-3xl p-16 bg-white dark:bg-dark-surface flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
-          dragging
+        className={`relative group border-2 border-dashed rounded-3xl p-16 bg-white dark:bg-dark-surface flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-200 ${
+          pasteFlash
+            ? 'border-accent bg-accent-dim/20 dark:bg-dark-accent-dim/30 scale-[1.01]'
+            : dragging
             ? 'border-accent/60 bg-accent-dim/10 dark:bg-dark-accent-dim/20'
             : 'border-slate-200 dark:border-dark-border hover:border-accent/40'
         }`}
       >
         <div className={`w-20 h-20 bg-accent-dim dark:bg-dark-accent-dim rounded-2xl flex items-center justify-center mb-6 transition-transform ${
-          dragging ? 'scale-110' : 'group-hover:scale-110'
+          pasteFlash || dragging ? 'scale-110' : 'group-hover:scale-110'
         }`}>
-          <span className="material-symbols-outlined text-4xl text-accent dark:text-dark-accent">upload_file</span>
+          <span className="material-symbols-outlined text-4xl text-accent dark:text-dark-accent">
+            {pasteFlash ? 'content_paste' : 'upload_file'}
+          </span>
         </div>
 
-        <h4 className="text-2xl font-bold text-primary dark:text-dark-text mb-2">Drop artifacts or click to browse</h4>
+        <h4 className="text-2xl font-bold text-primary dark:text-dark-text mb-2">
+          {pasteFlash ? 'Pasted!' : 'Drop artifacts or click to browse'}
+        </h4>
         <p className="text-on-surface-variant dark:text-dark-text-muted max-w-sm mb-1">
           Files are staged before uploading — review and push when ready
         </p>
-        {hint && <p className="text-xs text-slate-400 dark:text-dark-text-faint font-mono mb-4">{hint}</p>}
+        {hint && <p className="text-xs text-slate-400 dark:text-dark-text-faint font-mono mb-1">{hint}</p>}
+
+        {/* Paste hint */}
+        <p className="text-[11px] text-slate-300 dark:text-dark-text-faint font-medium mb-4 flex items-center gap-1.5">
+          <span className="material-symbols-outlined text-[13px]">content_paste</span>
+          <span>or press</span>
+          <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-dark-surface-2 text-slate-500 dark:text-dark-text-muted font-mono text-[10px] border border-slate-200 dark:border-dark-border">
+            Ctrl+V
+          </kbd>
+          <span>/</span>
+          <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-dark-surface-2 text-slate-500 dark:text-dark-text-muted font-mono text-[10px] border border-slate-200 dark:border-dark-border">
+            ⌘V
+          </kbd>
+          <span>anywhere</span>
+        </p>
 
         {stagedCount > 0 && (
           <div className="mb-6 flex items-center gap-2 px-4 py-2 bg-accent-dim/30 dark:bg-dark-accent-dim/40 rounded-full">
