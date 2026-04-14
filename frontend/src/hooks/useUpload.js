@@ -1,8 +1,31 @@
 import { useState, useCallback, useRef } from 'react';
 import { UPLOADERS } from '../lib/nexusApi';
 
+const HISTORY_KEY = 'nexus-pusher-history';
+const MAX_HISTORY = 500;
+
 let idCounter = 0;
 const genId = () => ++idCounter;
+
+function saveToHistory(item) {
+  try {
+    const existing = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    const entry = {
+      id:          item.id,
+      name:        item.name,
+      size:        item.size,
+      repoType:    item.repoType,
+      repoName:    item.repoName,
+      status:      item.status,
+      statusText:  item.statusText,
+      nexusUiUrl:  item.nexusUiUrl || null,
+      directUrl:   item.directUrl || null,
+      timestamp:   Date.now(),
+    };
+    const updated = [entry, ...existing].slice(0, MAX_HISTORY);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+  } catch (_) { /* storage full — silently skip */ }
+}
 
 export function useUpload(settings, repoType, repoName, extraFields) {
   const [queue, setQueue] = useState([]);
@@ -18,44 +41,32 @@ export function useUpload(settings, repoType, repoName, extraFields) {
     setQueue(q => q.map(i => (i.id === id ? { ...i, ...patch } : i))),
   []);
 
-  // processNext picks the first pending item from the latest queue state,
-  // processes it, then schedules itself again. The ref only prevents two
-  // concurrent calls from both thinking they should start — it is ALWAYS
-  // cleared in a finally block so it can never get permanently stuck.
   const processNext = useCallback(() => {
     if (processingRef.current) return;
     processingRef.current = true;
 
-    // Read the latest queue from state to find the next pending item
     setQueue(currentQueue => {
       const item = currentQueue.find(i => i.status === 'pending');
 
       if (!item) {
-        // Nothing left to do
         processingRef.current = false;
         return currentQueue;
       }
 
-      // Validate before uploading — fail fast with a clear message
       if (!item.settings.nexusUrl) {
         processingRef.current = false;
-        // Mark this item as error, then immediately schedule next
-        const next = currentQueue.map(i =>
-          i.id === item.id
-            ? { ...i, status: 'error', statusText: 'Nexus URL not set — open Settings' }
-            : i
-        );
+        const patch = { status: 'error', statusText: 'Nexus URL not set — open Settings' };
+        saveToHistory({ ...item, ...patch });
+        const next = currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
         setTimeout(processNext, 0);
         return next;
       }
 
       if (!item.repoName) {
         processingRef.current = false;
-        const next = currentQueue.map(i =>
-          i.id === item.id
-            ? { ...i, status: 'error', statusText: 'Repository name not set — enter it below the type selector' }
-            : i
-        );
+        const patch = { status: 'error', statusText: 'Repository name not set — enter it below the type selector' };
+        saveToHistory({ ...item, ...patch });
+        const next = currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
         setTimeout(processNext, 0);
         return next;
       }
@@ -63,19 +74,16 @@ export function useUpload(settings, repoType, repoName, extraFields) {
       const uploader = UPLOADERS[item.repoType];
       if (!uploader) {
         processingRef.current = false;
-        const next = currentQueue.map(i =>
-          i.id === item.id
-            ? { ...i, status: 'error', statusText: `Unknown repo type: ${item.repoType}` }
-            : i
-        );
+        const patch = { status: 'error', statusText: `Unknown repo type: ${item.repoType}` };
+        saveToHistory({ ...item, ...patch });
+        const next = currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
         setTimeout(processNext, 0);
         return next;
       }
 
-      // Mark as uploading, then kick off the async work outside setQueue
       setTimeout(async () => {
         try {
-          await uploader({
+          const result = await uploader({
             nexusUrl:  item.settings.nexusUrl,
             repo:      item.repoName,
             username:  item.settings.username,
@@ -84,17 +92,22 @@ export function useUpload(settings, repoType, repoName, extraFields) {
             extra:     item.extraFields,
             onProgress: (pct) => updateItem(item.id, { progress: pct }),
           });
-          updateItem(item.id, { status: 'done', progress: 100, statusText: 'Successful' });
+          // result may contain { nexusUiUrl, url } from the backend
+          const nexusUiUrl = result?.nexusUiUrl || null;
+          const directUrl  = result?.url || null;
+          const patch = { status: 'done', progress: 100, statusText: 'Successful', nexusUiUrl, directUrl };
+          updateItem(item.id, patch);
+          saveToHistory({ ...item, ...patch });
         } catch (err) {
-          updateItem(item.id, { status: 'error', statusText: err.message });
+          const patch = { status: 'error', statusText: err.message };
+          updateItem(item.id, patch);
+          saveToHistory({ ...item, ...patch });
         } finally {
-          // Always release the lock and schedule the next item
           processingRef.current = false;
           processNext();
         }
       }, 0);
 
-      // Mark the item as uploading in state synchronously
       return currentQueue.map(i =>
         i.id === item.id ? { ...i, status: 'uploading', progress: 0 } : i
       );

@@ -2,10 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const { nexusRequest } = require('../lib/nexusRequest');
 
-// NOTE: The npm registry protocol requires the tarball to be embedded as a
-// base64 string inside a JSON body. Streaming is not possible here.
-// As a result the entire tarball is held in memory during upload.
-// Multer is configured with a 1GB limit (upload.js) to prevent OOM.
 async function upload({ file, nexusUrl, repo, username, password }) {
   const tarball = fs.readFileSync(file.path);
   const b64 = tarball.toString('base64');
@@ -43,7 +39,8 @@ async function upload({ file, nexusUrl, repo, username, password }) {
     auth: username ? { username, password } : undefined,
   });
 
-  return { url, status: response.status };
+  const nexusUiUrl = `${nexusUrl}/#browse/browse:${repo}:${encodeURIComponent(name)}`;
+  return { url, nexusUiUrl, status: response.status };
 }
 
 module.exports = { upload };

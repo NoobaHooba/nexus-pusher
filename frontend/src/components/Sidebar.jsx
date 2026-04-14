@@ -1,8 +1,9 @@
 import React from 'react';
 
 const NAV_ITEMS = [
-  { id: 'upload', icon: 'rocket_launch', label: 'Pushes' },
-  { id: 'ldap',   icon: 'group',         label: 'LDAP & Access' },
+  { id: 'upload',  icon: 'rocket_launch', label: 'Pushes' },
+  { id: 'history', icon: 'history',       label: 'History' },
+  { id: 'ldap',    icon: 'group',         label: 'LDAP & Access' },
 ];
 
 export default function Sidebar({ nexusLogo, onOpenSettings, activePage, onNavigate }) {

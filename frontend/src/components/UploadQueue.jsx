@@ -3,7 +3,7 @@ import React from 'react';
 const STATUS_CONFIG = {
   pending:   { label: 'Pending',    bgClass: 'bg-slate-100 text-slate-500',      iconBg: 'bg-slate-50 text-slate-400',       icon: 'description',   cardClass: 'border-slate-50' },
   uploading: { label: 'Uploading',  bgClass: 'bg-accent text-white',             iconBg: 'bg-accent-dim text-accent',        icon: 'sync',          cardClass: 'border-accent/10 shadow-lg shadow-accent/5' },
-  done:      { label: 'Done',       bgClass: 'bg-green-50 text-accent',          iconBg: 'bg-green-50 text-accent',          icon: 'check_circle',  cardClass: 'border-slate-50 opacity-60' },
+  done:      { label: 'Done',       bgClass: 'bg-green-50 text-accent',          iconBg: 'bg-green-50 text-accent',          icon: 'check_circle',  cardClass: 'border-slate-50 opacity-80' },
   warning:   { label: 'Duplicate',  bgClass: 'bg-amber-50 text-amber-600',       iconBg: 'bg-amber-50 text-amber-500',       icon: 'info',          cardClass: 'border-amber-100' },
   error:     { label: 'Failed',     bgClass: 'bg-red-50 text-red-500',           iconBg: 'bg-red-50 text-red-500',           icon: 'report',        cardClass: 'border-slate-50' },
 };
@@ -35,12 +35,14 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry }) {
         {queue.map((item) => {
           const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending;
           const isUploading = item.status === 'uploading';
-          const isError = item.status === 'error';
-          const isWarning = item.status === 'warning';
+          const isError     = item.status === 'error';
+          const isWarning   = item.status === 'warning';
+          const isDone      = item.status === 'done';
           return (
             <div key={item.id} className={`flex flex-col gap-4 p-5 bg-white rounded-2xl border shadow-sm transition-shadow hover:shadow-md relative overflow-hidden ${cfg.cardClass}`}>
               {isUploading && <div className="absolute top-0 left-0 w-1.5 h-full bg-accent" />}
-              {isWarning && <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400" />}
+              {isWarning   && <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400" />}
+              {isDone      && <div className="absolute top-0 left-0 w-1.5 h-full bg-green-400" />}
               <div className="flex items-center gap-5">
                 <div className={`w-12 h-12 flex-shrink-0 flex items-center justify-center rounded-xl ${cfg.iconBg}`}>
                   <span className={`material-symbols-outlined text-2xl ${isUploading ? 'animate-spin' : ''}`} style={isUploading ? { animationDuration: '3s' } : {}}>{cfg.icon}</span>
@@ -52,6 +54,18 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry }) {
                   }`}>
                     {formatSize(item.size)}{item.speed ? ` • ${item.speed}` : ''}{item.statusText ? ` • ${item.statusText}` : ''}
                   </p>
+                  {/* Nexus deep-link — shown on done items */}
+                  {isDone && item.nexusUiUrl && (
+                    <a
+                      href={item.nexusUiUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold text-accent hover:underline"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">open_in_new</span>
+                      View in Nexus
+                    </a>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   {isError && (

@@ -14,14 +14,12 @@ async function upload({ file, nexusUrl, repo, username, password }) {
     method: 'PUT',
     url,
     data: form,
-    headers: {
-      ...form.getHeaders(),
-      'X-NuGet-ApiKey': password || 'APIKEY',
-    },
+    headers: form.getHeaders(),
     auth: username ? { username, password } : undefined,
   });
 
-  return { url, status: response.status };
+  const nexusUiUrl = `${nexusUrl}/#browse/browse:${repo}`;
+  return { url, nexusUiUrl, status: response.status };
 }
 
 module.exports = { upload };

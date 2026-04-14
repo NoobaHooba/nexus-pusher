@@ -20,7 +20,9 @@ async function upload({ file, nexusUrl, repo, username, password, extra }) {
     auth: username ? { username, password } : undefined,
   });
 
-  return { url, status: response.status };
+  // Nexus UI deep-link: Browse > repository > path
+  const nexusUiUrl = `${nexusUrl}/#browse/browse:${repo}:${encodeURIComponent(uploadPath)}`;
+  return { url, nexusUiUrl, status: response.status };
 }
 
 module.exports = { upload };

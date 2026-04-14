@@ -4,12 +4,12 @@ const { nexusRequest } = require('../lib/nexusRequest');
 
 async function upload({ file, nexusUrl, repo, username, password }) {
   const form = new FormData();
-  form.append('helm.asset', fs.createReadStream(file.path), {
+  form.append('chart', fs.createReadStream(file.path), {
     filename: file.originalname,
-    contentType: 'application/gzip',
+    contentType: 'application/octet-stream',
   });
 
-  const url = `${nexusUrl}/service/rest/v1/components?repository=${encodeURIComponent(repo)}`;
+  const url = `${nexusUrl}/repository/${repo}/`;
   const response = await nexusRequest({
     method: 'POST',
     url,
@@ -18,7 +18,8 @@ async function upload({ file, nexusUrl, repo, username, password }) {
     auth: username ? { username, password } : undefined,
   });
 
-  return { url, status: response.status };
+  const nexusUiUrl = `${nexusUrl}/#browse/browse:${repo}`;
+  return { url, nexusUiUrl, status: response.status };
 }
 
 module.exports = { upload };

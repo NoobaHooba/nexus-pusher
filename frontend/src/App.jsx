@@ -6,6 +6,7 @@ import UploadQueue from './components/UploadQueue';
 import UploadSummary from './components/UploadSummary';
 import SettingsModal from './components/SettingsModal';
 import LdapPage from './components/LdapPage';
+import HistoryPage from './components/HistoryPage';
 import { useUpload } from './hooks/useUpload';
 
 const NEXUS_LOGO = 'https://lh3.googleusercontent.com/aida/ADBb0uhJAgGgzva0ScflAODe8l4LMeZezCQyPlBcHfUAH-CAxD_MYx7wvT5O-ITn9Abyf95i_KO-P8Bncj9y9pRJ23POSAynBfpNXXiBJGDd9Z5h9G1ApNqrk7ui-cSUcJeebjx_V-WcR0LuUhaiFKy4Kw0IyjBU0lTYciWLKOpJJrgl2YrNM_jWcLJaDgIyMbsCsproxqG7eN_j4owNPpSb2t9u3IuRwR4tVYZOCiy6RdLlYI3uuhzHUK0yeYOt7-aWN5NOTGHDCCBs4Q';
@@ -102,9 +103,9 @@ export default function App() {
           </>
         )}
 
-        {activePage === 'ldap' && (
-          <LdapPage settings={settings} />
-        )}
+        {activePage === 'history' && <HistoryPage />}
+
+        {activePage === 'ldap' && <LdapPage settings={settings} />}
 
         <footer className="mt-auto py-10 border-t border-slate-100 flex justify-between items-center">
           <div className="flex items-center gap-4">
