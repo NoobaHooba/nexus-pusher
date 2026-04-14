@@ -37,7 +37,7 @@ export default function App() {
 
   const {
     staged, stagedSize, stageFiles, removeStaged, cancelStaged, pushStaged,
-    queue, totalSize, estimatedTime, clearCompleted, retryItem,
+    queue, totalSize, estimatedTime, clearCompleted, retryItem, reorderQueue,
   } = useUpload(settings, activeRepo, repoName, extraFields);
 
   useEffect(() => {
@@ -63,6 +63,7 @@ export default function App() {
         onOpenSettings={() => setShowSettings(true)}
         activePage={activePage}
         onNavigate={setActivePage}
+        settings={settings}
       />
 
       <main className="ml-64 p-10 flex flex-col gap-12 max-w-[1400px]">
@@ -104,6 +105,7 @@ export default function App() {
                   queue={queue}
                   onClearCompleted={clearCompleted}
                   onRetry={retryItem}
+                  onReorder={reorderQueue}
                 />
               </div>
             </div>

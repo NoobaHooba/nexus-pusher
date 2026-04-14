@@ -28,13 +28,10 @@ function saveToHistory(item) {
 }
 
 export function useUpload(settings, repoType, repoName, extraFields) {
-  // staged  — files waiting for the user to confirm push
-  // queue   — files actively uploading / done / errored
   const [staged, setStaged]     = useState([]);
   const [queue,  setQueue]      = useState([]);
   const processingRef           = useRef(false);
 
-  /* ─── derived sizes ──────────────────────────────────────────── */
   const stagedSize   = staged.reduce((a, i) => a + (i.size || 0), 0);
   const totalSize    = queue.reduce((a, i) => a + (i.size || 0), 0);
   const pendingSize  = queue
@@ -42,7 +39,6 @@ export function useUpload(settings, repoType, repoName, extraFields) {
     .reduce((a, i) => a + (i.size || 0), 0);
   const estimatedTime = pendingSize > 0 ? pendingSize / (5 * 1024 * 1024) : 0;
 
-  /* ─── queue helpers ──────────────────────────────────────────── */
   const updateItem = useCallback((id, patch) =>
     setQueue(q => q.map(i => (i.id === id ? { ...i, ...patch } : i))),
   []);
@@ -116,8 +112,6 @@ export function useUpload(settings, repoType, repoName, extraFields) {
     });
   }, [updateItem]);
 
-  /* ─── staging helpers ────────────────────────────────────────── */
-  // Add files to the staging area (does NOT start uploading)
   const stageFiles = useCallback((files) => {
     const newItems = files.map(f => ({
       id:   genId(),
@@ -128,17 +122,14 @@ export function useUpload(settings, repoType, repoName, extraFields) {
     setStaged(s => [...s, ...newItems]);
   }, []);
 
-  // Remove a single file from staging
   const removeStaged = useCallback((id) => {
     setStaged(s => s.filter(i => i.id !== id));
   }, []);
 
-  // Discard all staged files without uploading
   const cancelStaged = useCallback(() => {
     setStaged([]);
   }, []);
 
-  // Commit all staged files → queue and start processing
   const pushStaged = useCallback(() => {
     setStaged(currentStaged => {
       if (currentStaged.length === 0) return currentStaged;
@@ -156,11 +147,10 @@ export function useUpload(settings, repoType, repoName, extraFields) {
 
       setQueue(q => [...q, ...newItems]);
       setTimeout(processNext, 0);
-      return []; // clear staging
+      return [];
     });
   }, [processNext, repoType, repoName, settings, extraFields]);
 
-  /* ─── queue helpers (existing) ───────────────────────────────── */
   const clearCompleted = useCallback(() => {
     setQueue(q => q.filter(i => i.status !== 'done'));
   }, []);
@@ -172,10 +162,27 @@ export function useUpload(settings, repoType, repoName, extraFields) {
     setTimeout(processNext, 0);
   }, [processNext]);
 
+  /**
+   * Reorder queue: move a pending item to a new index among pending items.
+   * Active (uploading/done/error) items stay in place.
+   */
+  const reorderQueue = useCallback((fromId, toId) => {
+    setQueue(q => {
+      if (fromId === toId) return q;
+      const fromIdx = q.findIndex(i => i.id === fromId);
+      const toIdx   = q.findIndex(i => i.id === toId);
+      if (fromIdx === -1 || toIdx === -1) return q;
+      // Only allow reordering pending items
+      if (q[fromIdx].status !== 'pending' || q[toIdx].status !== 'pending') return q;
+      const next = [...q];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  }, []);
+
   return {
-    // staging
     staged, stagedSize, stageFiles, removeStaged, cancelStaged, pushStaged,
-    // queue
-    queue, totalSize, estimatedTime, clearCompleted, retryItem,
+    queue, totalSize, estimatedTime, clearCompleted, retryItem, reorderQueue,
   };
 }
