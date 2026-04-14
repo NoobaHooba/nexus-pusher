@@ -8,6 +8,7 @@ import SettingsModal from './components/SettingsModal';
 import StagingBar from './components/StagingBar';
 import LdapPage from './components/LdapPage';
 import HistoryPage from './components/HistoryPage';
+import BrowserPage from './components/BrowserPage';
 import { useUpload } from './hooks/useUpload';
 
 const NEXUS_LOGO = 'https://lh3.googleusercontent.com/aida/ADBb0uhJAgGgzva0ScflAODe8l4LMeZezCQyPlBcHfUAH-CAxD_MYx7wvT5O-ITn9Abyf95i_KO-P8Bncj9y9pRJ23POSAynBfpNXXiBJGDd9Z5h9G1ApNqrk7ui-cSUcJeebjx_V-WcR0LuUhaiFKy4Kw0IyjBU0lTYciWLKOpJJrgl2YrNM_jWcLJaDgIyMbsCsproxqG7eN_j4owNPpSb2t9u3IuRwR4tVYZOCiy6RdLlYI3uuhzHUK0yeYOt7-aWN5NOTGHDCCBs4Q';
@@ -85,7 +86,6 @@ export default function App() {
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
               <div className="lg:col-span-7 flex flex-col gap-10">
-                {/* Pass stageFiles — files go to staging, NOT queue */}
                 <UploadZone
                   onFiles={stageFiles}
                   repoType={activeRepo}
@@ -110,6 +110,7 @@ export default function App() {
           </>
         )}
 
+        {activePage === 'browser' && <BrowserPage settings={settings} />}
         {activePage === 'history' && <HistoryPage />}
         {activePage === 'ldap'    && <LdapPage settings={settings} />}
 
@@ -128,7 +129,6 @@ export default function App() {
         </footer>
       </main>
 
-      {/* Staging bar — floats above footer when files are staged */}
       <StagingBar
         staged={staged}
         stagedSize={stagedSize}
