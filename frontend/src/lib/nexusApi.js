@@ -90,3 +90,31 @@ export const UPLOADERS = {
   helm:   uploadHelm,
   raw:    uploadRaw,
 };
+
+/**
+ * checkDuplicate — asks the backend to search Nexus for an existing component
+ * with the same filename in the target repo before uploading.
+ *
+ * @param {object} opts
+ * @param {string} opts.nexusUrl
+ * @param {string} opts.username
+ * @param {string} opts.password
+ * @param {string} opts.repo       — repository name
+ * @param {string} opts.name       — artifact name / filename to search for
+ * @param {string} [opts.version]  — optional version string
+ * @returns {Promise<{ exists: boolean, components: Array, warning?: string }>}
+ */
+export async function checkDuplicate({ nexusUrl, username, password, repo, name, version }) {
+  try {
+    const res = await fetch('/api/check-duplicate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nexusUrl, username, password, repo, name, version }),
+    });
+    if (!res.ok) return { exists: false, components: [] };
+    return await res.json();
+  } catch (_) {
+    // Never block an upload because the duplicate check failed
+    return { exists: false, components: [] };
+  }
+}

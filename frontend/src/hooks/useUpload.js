@@ -1,8 +1,31 @@
 import { useState, useCallback, useRef } from 'react';
-import { UPLOADERS } from '../lib/nexusApi';
+import { UPLOADERS, checkDuplicate } from '../lib/nexusApi';
 
 const HISTORY_KEY = 'nexus-pusher-history';
 const MAX_HISTORY = 500;
+
+// ── Retry configuration ───────────────────────────────────────────────────────
+// Max 3 automatic attempts (1 initial + 2 retries) with exponential back-off.
+// Delay sequence: 2 s → 4 s → (give up).
+// Only transient errors are retried — 4xx responses are permanent failures.
+const MAX_AUTO_RETRIES  = 2;           // retries after the first attempt
+const BASE_RETRY_DELAY  = 2000;        // ms — doubles each attempt
+
+function isTransientError(message) {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  return (
+    m.includes('network') ||
+    m.includes('timeout') ||
+    m.includes('econnrefused') ||
+    m.includes('econnreset') ||
+    m.includes('etimedout') ||
+    m.includes('fetch') ||
+    m.includes('backend') ||
+    // HTTP 5xx
+    /http 5\d\d/.test(m)
+  );
+}
 
 let idCounter = 0;
 const genId = () => ++idCounter;
@@ -28,20 +51,15 @@ function saveToHistory(item) {
 }
 
 export function useUpload(settings, repoType, repoName, extraFields, toast) {
-  const [staged, setStaged]     = useState([]);
-  const [queue,  setQueue]      = useState([]);
-  const processingRef           = useRef(false);
-
-  // FIX 1: Store toast in a ref so the processNext closure never captures
-  // a stale version. Previously, processNext was in the useCallback dep array
-  // but the closure captured the toast value at creation time, meaning
-  // retryAllFailed / retryItem could fire toasts from old renders.
-  const toastRef = useRef(toast);
+  const [staged, setStaged] = useState([]);
+  const [queue,  setQueue]  = useState([]);
+  const processingRef       = useRef(false);
+  const toastRef            = useRef(toast);
   toastRef.current = toast;
 
-  const stagedSize   = staged.reduce((a, i) => a + (i.size || 0), 0);
-  const totalSize    = queue.reduce((a, i) => a + (i.size || 0), 0);
-  const pendingSize  = queue
+  const stagedSize    = staged.reduce((a, i) => a + (i.size || 0), 0);
+  const totalSize     = queue.reduce((a, i) => a + (i.size || 0), 0);
+  const pendingSize   = queue
     .filter(i => i.status === 'pending')
     .reduce((a, i) => a + (i.size || 0), 0);
   const estimatedTime = pendingSize > 0 ? pendingSize / (5 * 1024 * 1024) : 0;
@@ -50,9 +68,6 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
     setQueue(q => q.map(i => (i.id === id ? { ...i, ...patch } : i))),
   []);
 
-  // FIX 1 (cont.): processNext no longer lists toast in deps — it reads
-  // toastRef.current instead, so the function reference stays stable and
-  // doesn’t trigger re-renders of every consumer downstream.
   const processNext = useCallback(() => {
     if (processingRef.current) return;
     processingRef.current = true;
@@ -93,42 +108,131 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
         return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
       }
 
+      // Mark as uploading immediately (optimistic UI)
       setTimeout(async () => {
-        try {
-          const result = await uploader({
-            nexusUrl:   item.settings.nexusUrl,
-            repo:       item.repoName,
-            username:   item.settings.username,
-            password:   item.settings.password,
-            file:       item.file,
-            extra:      item.extraFields,
-            onProgress: (pct) => updateItem(item.id, { progress: pct }),
-          });
-          const nexusUiUrl = result?.nexusUiUrl || null;
-          const directUrl  = result?.url         || null;
-          const patch = { status: 'done', progress: 100, statusText: 'Successful', nexusUiUrl, directUrl };
-          updateItem(item.id, patch);
-          saveToHistory({ ...item, ...patch });
-          toastRef.current?.success(`Pushed to ${item.repoName}`, {
-            title: item.name,
-            ...(nexusUiUrl ? { action: { label: 'View in Nexus', onClick: () => window.open(nexusUiUrl, '_blank') } } : {}),
-          });
-        } catch (err) {
-          const patch = { status: 'error', statusText: err.message };
-          updateItem(item.id, patch);
-          saveToHistory({ ...item, ...patch });
-          toastRef.current?.error(err.message, { title: item.name, duration: 7000 });
-        } finally {
-          processingRef.current = false;
-          processNext();
+        // ── Feature 9: Pre-upload duplicate detection ─────────────────────────
+        // Only run the check if the item isn't already a confirmed overwrite
+        // (i.e. user hasn't explicitly said "push anyway" via retryItem).
+        // Skip the check for docker — it has no search-friendly artifact name.
+        if (!item.skipDuplicateCheck && item.repoType !== 'docker') {
+          try {
+            const dupResult = await checkDuplicate({
+              nexusUrl: item.settings.nexusUrl,
+              username: item.settings.username,
+              password: item.settings.password,
+              repo:     item.repoName,
+              name:     item.name,
+            });
+
+            if (dupResult.exists) {
+              // Pause and surface a warning — don't auto-push over an existing artifact.
+              // The user can hit "Push Anyway" (retryItem with skipDuplicateCheck=true)
+              // or remove the item from the queue.
+              const existing  = dupResult.components[0];
+              const statusText = existing?.version
+                ? `Already exists in ${item.repoName} (v${existing.version}) — push anyway to overwrite`
+                : `Already exists in ${item.repoName} — push anyway to overwrite`;
+              const patch = { status: 'warning', statusText, dupComponents: dupResult.components };
+              updateItem(item.id, patch);
+              toastRef.current?.warning(`Duplicate detected: ${item.name}`, {
+                title: 'Already in Nexus',
+                duration: 8000,
+              });
+              processingRef.current = false;
+              processNext(); // continue with remaining queue items
+              return;
+            }
+          } catch (_) {
+            // Duplicate check failure is non-fatal — proceed with the upload
+          }
         }
+
+        // ── Feature 8: Upload with exponential-backoff auto-retry ─────────────
+        const maxAttempts = MAX_AUTO_RETRIES + 1;
+        let   attempt     = item.retryCount || 0; // how many auto-retries already done
+        let   lastError   = null;
+
+        while (attempt < maxAttempts) {
+          if (attempt > 0) {
+            // Exponential back-off delay before each retry attempt
+            const delayMs = BASE_RETRY_DELAY * Math.pow(2, attempt - 1);
+            updateItem(item.id, {
+              status:     'pending',
+              statusText: `Retrying in ${delayMs / 1000}s… (attempt ${attempt + 1}/${maxAttempts})`,
+              retryCount: attempt,
+            });
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            // Re-mark as uploading after the delay
+            updateItem(item.id, {
+              status:     'uploading',
+              progress:   0,
+              statusText: `Attempt ${attempt + 1} of ${maxAttempts}`,
+              retryCount: attempt,
+            });
+          }
+
+          try {
+            const result = await uploader({
+              nexusUrl:   item.settings.nexusUrl,
+              repo:       item.repoName,
+              username:   item.settings.username,
+              password:   item.settings.password,
+              file:       item.file,
+              extra:      item.extraFields,
+              onProgress: (pct) => updateItem(item.id, { progress: pct }),
+            });
+
+            const nexusUiUrl = result?.nexusUiUrl || null;
+            const directUrl  = result?.url         || null;
+            const patch = {
+              status: 'done', progress: 100, statusText: 'Successful',
+              nexusUiUrl, directUrl,
+              retryCount: attempt,  // record final attempt count for history
+            };
+            updateItem(item.id, patch);
+            saveToHistory({ ...item, ...patch });
+
+            const retriedLabel = attempt > 0 ? ` (succeeded on attempt ${attempt + 1})` : '';
+            toastRef.current?.success(`Pushed to ${item.repoName}${retriedLabel}`, {
+              title: item.name,
+              ...(nexusUiUrl ? { action: { label: 'View in Nexus', onClick: () => window.open(nexusUiUrl, '_blank') } } : {}),
+            });
+
+            lastError = null;
+            break; // success — exit the retry loop
+
+          } catch (err) {
+            lastError = err;
+
+            // If the error is permanent (e.g. 400 Bad Request, 401, 409 Conflict)
+            // don't waste retries — bail immediately.
+            if (!isTransientError(err.message)) break;
+
+            attempt++;
+          }
+        }
+
+        // If we exited the loop with an error, mark as failed
+        if (lastError) {
+          const exhausted = attempt >= maxAttempts && isTransientError(lastError.message);
+          const statusText = exhausted
+            ? `Failed after ${maxAttempts} attempt${maxAttempts !== 1 ? 's' : ''}: ${lastError.message}`
+            : lastError.message;
+          const patch = { status: 'error', statusText, retryCount: attempt };
+          updateItem(item.id, patch);
+          saveToHistory({ ...item, ...patch });
+          toastRef.current?.error(statusText, { title: item.name, duration: 7000 });
+        }
+
+        processingRef.current = false;
+        processNext();
       }, 0);
 
       return currentQueue.map(i =>
-        i.id === item.id ? { ...i, status: 'uploading', progress: 0 } : i
+        i.id === item.id ? { ...i, status: 'uploading', progress: 0, retryCount: i.retryCount || 0 } : i
       );
     });
-  }, [updateItem]); // removed `toast` from deps — accessed via toastRef instead
+  }, [updateItem]);
 
   const stageFiles = useCallback((files) => {
     const newItems = files.map(f => ({
@@ -153,9 +257,11 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
       if (currentStaged.length === 0) return currentStaged;
       const newItems = currentStaged.map(s => ({
         ...s,
-        status:      'pending',
-        progress:    0,
-        statusText:  'Waiting',
+        status:             'pending',
+        progress:           0,
+        statusText:         'Waiting',
+        retryCount:         0,
+        skipDuplicateCheck: false,
         repoType,
         repoName,
         settings:    { ...settings },
@@ -172,9 +278,12 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
     setQueue(q => q.filter(i => i.status !== 'done'));
   }, []);
 
-  const retryItem = useCallback((id) => {
+  // Manual retry — always skips the duplicate check so "Push Anyway" works
+  const retryItem = useCallback((id, { skipDuplicateCheck = true } = {}) => {
     setQueue(q => q.map(i =>
-      i.id === id ? { ...i, status: 'pending', statusText: 'Waiting', progress: 0 } : i
+      i.id === id
+        ? { ...i, status: 'pending', statusText: 'Waiting', progress: 0, retryCount: 0, skipDuplicateCheck }
+        : i
     ));
     setTimeout(processNext, 0);
   }, [processNext]);
@@ -185,7 +294,9 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
       if (failedCount === 0) return q;
       toastRef.current?.info(`Retrying ${failedCount} failed file${failedCount !== 1 ? 's' : ''}…`);
       return q.map(i =>
-        i.status === 'error' ? { ...i, status: 'pending', statusText: 'Waiting', progress: 0 } : i
+        i.status === 'error'
+          ? { ...i, status: 'pending', statusText: 'Waiting', progress: 0, retryCount: 0, skipDuplicateCheck: true }
+          : i
       );
     });
     setTimeout(processNext, 0);

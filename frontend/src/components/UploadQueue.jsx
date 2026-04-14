@@ -5,7 +5,7 @@ const STATUS_CONFIG = {
   pending:   { label: 'Pending',   bgClass: 'bg-slate-100 dark:bg-dark-surface-2 text-slate-500 dark:text-dark-text-muted', iconBg: 'bg-slate-50 dark:bg-dark-surface-2 text-slate-400 dark:text-dark-text-faint', icon: 'description',  cardClass: 'border-slate-50 dark:border-dark-border' },
   uploading: { label: 'Uploading', bgClass: 'bg-accent text-white',                                                           iconBg: 'bg-accent-dim dark:bg-dark-accent-dim text-accent dark:text-dark-accent',      icon: 'sync',          cardClass: 'border-accent/10 shadow-lg shadow-accent/5' },
   done:      { label: 'Done',      bgClass: 'bg-green-50 dark:bg-green-900/20 text-accent dark:text-dark-accent',             iconBg: 'bg-green-50 dark:bg-green-900/20 text-accent dark:text-dark-accent',           icon: 'check_circle',  cardClass: 'border-slate-50 dark:border-dark-border opacity-80' },
-  warning:   { label: 'Duplicate', bgClass: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400',           iconBg: 'bg-amber-50 dark:bg-amber-900/20 text-amber-500 dark:text-amber-400',          icon: 'info',          cardClass: 'border-amber-100 dark:border-amber-800/40' },
+  warning:   { label: 'Duplicate', bgClass: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400',           iconBg: 'bg-amber-50 dark:bg-amber-900/20 text-amber-500 dark:text-amber-400',          icon: 'content_copy',  cardClass: 'border-amber-100 dark:border-amber-800/40' },
   error:     { label: 'Failed',    bgClass: 'bg-red-50 dark:bg-red-900/20 text-red-500',                                      iconBg: 'bg-red-50 dark:bg-red-900/20 text-red-500',                                  icon: 'report',        cardClass: 'border-slate-50 dark:border-dark-border' },
 };
 
@@ -17,7 +17,6 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-// ── Inline SVG empty-state illustration ──────────────────────────────────────
 function EmptyStateIllustration() {
   return (
     <svg
@@ -27,60 +26,45 @@ function EmptyStateIllustration() {
       className="w-40 h-32 mb-6"
       aria-hidden="true"
     >
-      {/* Shadow ellipse */}
       <ellipse cx="80" cy="108" rx="44" ry="6" fill="currentColor" className="text-slate-100 dark:text-dark-border" />
-
-      {/* Back box */}
       <rect x="52" y="34" width="62" height="52" rx="6" fill="currentColor" className="text-slate-100 dark:text-dark-surface-2" />
       <rect x="52" y="34" width="62" height="10" rx="6" fill="currentColor" className="text-slate-200 dark:text-dark-border" />
       <rect x="56" y="38" width="8" height="2" rx="1" fill="currentColor" className="text-slate-300 dark:text-dark-text-faint" />
       <rect x="68" y="38" width="12" height="2" rx="1" fill="currentColor" className="text-slate-300 dark:text-dark-text-faint" />
-
-      {/* Front box */}
       <rect x="40" y="44" width="64" height="52" rx="6" fill="white" className="dark:text-dark-surface" stroke="currentColor" strokeWidth="1.5" style={{stroke: 'var(--tw-ring-color, #e2e8f0)'}} />
-      <rect
-        x="40" y="44" width="64" height="52" rx="6"
-        fill="none"
-        className="text-slate-200 dark:text-dark-border"
-        stroke="currentColor" strokeWidth="1.5"
-      />
-
-      {/* Lines inside front box */}
+      <rect x="40" y="44" width="64" height="52" rx="6" fill="none" className="text-slate-200 dark:text-dark-border" stroke="currentColor" strokeWidth="1.5" />
       <rect x="50" y="60" width="28" height="3" rx="1.5" fill="currentColor" className="text-slate-200 dark:text-dark-border" />
       <rect x="50" y="67" width="20" height="3" rx="1.5" fill="currentColor" className="text-slate-200 dark:text-dark-border" />
       <rect x="50" y="74" width="24" height="3" rx="1.5" fill="currentColor" className="text-slate-200 dark:text-dark-border" />
-
-      {/* Upload arrow — green accent */}
       <circle cx="110" cy="52" r="14" fill="currentColor" className="text-accent-dim dark:text-dark-accent-dim" />
-      <path
-        d="M110 59 L110 47 M106 51 L110 47 L114 51"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="text-accent dark:text-dark-accent"
-      />
-
-      {/* Dashed drop hint */}
-      <rect
-        x="40" y="44" width="64" height="52" rx="6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeDasharray="4 3"
-        className="text-slate-200 dark:text-dark-border opacity-60"
-      />
+      <path d="M110 59 L110 47 M106 51 L110 47 L114 51" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent dark:text-dark-accent" />
+      <rect x="40" y="44" width="64" height="52" rx="6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 3" className="text-slate-200 dark:text-dark-border opacity-60" />
     </svg>
   );
 }
 
-// ── Animated file count badge in the queue header ────────────────────────────
 function QueueCountBadge({ count }) {
   const animated = useAnimatedNumber(count, { stiffness: 200, damping: 22, precision: 0.5 });
   if (count === 0) return null;
   return (
     <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-accent/10 dark:bg-dark-accent/10 text-accent dark:text-dark-accent text-[10px] font-extrabold tabular-nums">
       {Math.round(animated)}
+    </span>
+  );
+}
+
+// ── Retry attempt badge ───────────────────────────────────────────────────────
+// Shows "↻ 2/3" on items that have been auto-retried at least once.
+function RetryBadge({ retryCount }) {
+  if (!retryCount || retryCount < 1) return null;
+  const maxAttempts = 3; // MAX_AUTO_RETRIES + 1
+  return (
+    <span
+      title={`Auto-retried ${retryCount} time${retryCount !== 1 ? 's' : ''}`}
+      className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 uppercase tracking-wider flex-shrink-0"
+    >
+      <span className="material-symbols-outlined text-[10px]">refresh</span>
+      {retryCount}/{maxAttempts}
     </span>
   );
 }
@@ -94,7 +78,8 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
   const handleDrop      = (e, toId) => { e.preventDefault(); if (dragItemId.current !== null && dragItemId.current !== toId) onReorder?.(dragItemId.current, toId); dragItemId.current = null; setOverItemId(null); };
   const handleDragEnd   = () => { dragItemId.current = null; setOverItemId(null); };
 
-  const failedCount = queue.filter(i => i.status === 'error').length;
+  const failedCount  = queue.filter(i => i.status === 'error').length;
+  const dupCount     = queue.filter(i => i.status === 'warning').length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -107,6 +92,13 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
           <QueueCountBadge count={queue.length} />
           {queue.some(i => i.status === 'pending') && (
             <span className="text-[10px] text-slate-400 dark:text-dark-text-faint font-medium">(drag to reorder)</span>
+          )}
+          {/* Duplicate count callout */}
+          {dupCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-500 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full">
+              <span className="material-symbols-outlined text-[11px]">content_copy</span>
+              {dupCount} duplicate{dupCount !== 1 ? 's' : ''}
+            </span>
           )}
         </div>
         <div className="flex items-center gap-3">
@@ -125,7 +117,7 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
         </div>
       </div>
 
-      {/* ── Empty state illustration ── */}
+      {/* Empty state */}
       {queue.length === 0 && (
         <div className="flex flex-col items-center justify-center py-10 select-none">
           <EmptyStateIllustration />
@@ -139,13 +131,14 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
       {/* Items */}
       <div className="flex flex-col gap-3 custom-scrollbar overflow-y-auto max-h-[600px] pr-2">
         {queue.map((item) => {
-          const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending;
+          const cfg        = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending;
           const isUploading = item.status === 'uploading';
           const isError     = item.status === 'error';
           const isWarning   = item.status === 'warning';
           const isDone      = item.status === 'done';
           const isPending   = item.status === 'pending';
           const isDragOver  = overItemId === item.id;
+
           return (
             <div
               key={item.id}
@@ -161,6 +154,7 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
                 ${isPending ? 'cursor-grab active:cursor-grabbing' : ''}
               `}
             >
+              {/* Status accent bar */}
               {isUploading && <div className="absolute top-0 left-0 w-1.5 h-full bg-accent" />}
               {isWarning   && <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400" />}
               {isDone      && <div className="absolute top-0 left-0 w-1.5 h-full bg-green-400" />}
@@ -188,7 +182,11 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
                 </div>
 
                 <div className="flex-1 overflow-hidden">
-                  <p className="text-sm font-bold truncate text-primary dark:text-dark-text">{item.name}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-bold truncate text-primary dark:text-dark-text">{item.name}</p>
+                    {/* Retry attempt badge — only shown when auto-retried ≥ 1 time */}
+                    <RetryBadge retryCount={item.retryCount} />
+                  </div>
                   <p className={`text-[10px] font-semibold uppercase tracking-tight mt-0.5 ${
                     isUploading ? 'text-accent dark:text-dark-accent'
                     : isError   ? 'text-red-400'
@@ -206,27 +204,70 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {/* Error: plain retry (re-runs duplicate check too) */}
                   {isError && (
                     <button
                       onClick={() => onRetry(item.id)}
-                      title="Retry this file"
+                      title="Retry upload"
                       className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors"
                     >
                       <span className="material-symbols-outlined text-slate-400 dark:text-dark-text-faint text-lg">refresh</span>
+                    </button>
+                  )}
+                  {/* Duplicate warning: "Push Anyway" button */}
+                  {isWarning && (
+                    <button
+                      onClick={() => onRetry(item.id, { skipDuplicateCheck: true })}
+                      title="Overwrite existing artifact"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[13px]">upload</span>
+                      Push Anyway
                     </button>
                   )}
                   <span className={`text-[10px] font-bold px-3 py-1.5 rounded-lg uppercase ${cfg.bgClass}`}>{cfg.label}</span>
                 </div>
               </div>
 
+              {/* Progress bar */}
               {isUploading && item.progress != null && (
                 <div className="w-full bg-slate-100 dark:bg-dark-surface-2 h-1.5 rounded-full overflow-hidden">
                   <div className="bg-accent h-full transition-all duration-300" style={{ width: `${item.progress}%` }} />
                 </div>
               )}
+
+              {/* Duplicate detail panel */}
               {isWarning && item.statusText && (
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">{item.statusText}</p>
+                <div className="flex flex-col gap-2">
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
+                    {item.statusText}
+                  </p>
+                  {item.dupComponents?.length > 0 && (
+                    <div className="text-[10px] text-amber-600 dark:text-amber-400 font-mono bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2 flex flex-wrap gap-x-4 gap-y-1">
+                      {item.dupComponents.slice(0, 3).map((c, i) => (
+                        <span key={i}>
+                          {c.name}{c.version ? `@${c.version}` : ''}
+                          {c.downloadUrl ? (
+                            <a
+                              href={c.downloadUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-1 underline opacity-70 hover:opacity-100"
+                            >
+                              ↗
+                            </a>
+                          ) : null}
+                        </span>
+                      ))}
+                      {item.dupComponents.length > 3 && (
+                        <span className="opacity-60">+{item.dupComponents.length - 3} more</span>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
+
+              {/* Error detail */}
               {isError && item.statusText && (
                 <p className="text-[11px] text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2 font-mono">{item.statusText}</p>
               )}
