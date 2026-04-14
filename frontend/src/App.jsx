@@ -12,6 +12,7 @@ import BrowserPage from './components/BrowserPage';
 import ToastContainer from './components/ToastContainer';
 import { ToastProvider, useToast } from './hooks/useToast';
 import { useUpload } from './hooks/useUpload';
+import { useDocumentTitle } from './hooks/useDocumentTitle';
 
 const NEXUS_LOGO = 'https://lh3.googleusercontent.com/aida/ADBb0uhJAgGgzva0ScflAODe8l4LMeZezCQyPlBcHfUAH-CAxD_MYx7wvT5O-ITn9Abyf95i_KO-P8Bncj9y9pRJ23POSAynBfpNXXiBJGDd9Z5h9G1ApNqrk7ui-cSUcJeebjx_V-WcR0LuUhaiFKy4Kw0IyjBU0lTYciWLKOpJJrgl2YrNM_jWcLJaDgIyMbsCsproxqG7eN_j4owNPpSb2t9u3IuRwR4tVYZOCiy6RdLlYI3uuhzHUK0yeYOt7-aWN5NOTGHDCCBs4Q';
 
@@ -61,6 +62,13 @@ function AppInner() {
     staged, stagedSize, stageFiles, removeStaged, cancelStaged, pushStaged,
     queue, totalSize, estimatedTime, clearCompleted, retryItem, retryAllFailed, reorderQueue,
   } = useUpload(settings, activeRepo, repoName, extraFields, toast);
+
+  // ── Reactive document title ————————————————————————————─
+  useDocumentTitle(activePage, {
+    uploading: queue.filter(i => i.status === 'uploading').length,
+    pending:   queue.filter(i => i.status === 'pending').length,
+    failed:    queue.filter(i => i.status === 'error').length,
+  });
 
   useEffect(() => {
     if (!settings.nexusUrl) setShowSettings(true);
