@@ -5,6 +5,7 @@ import UploadZone from './components/UploadZone';
 import UploadQueue from './components/UploadQueue';
 import UploadSummary from './components/UploadSummary';
 import SettingsModal from './components/SettingsModal';
+import LdapPage from './components/LdapPage';
 import { useUpload } from './hooks/useUpload';
 
 const NEXUS_LOGO = 'https://lh3.googleusercontent.com/aida/ADBb0uhJAgGgzva0ScflAODe8l4LMeZezCQyPlBcHfUAH-CAxD_MYx7wvT5O-ITn9Abyf95i_KO-P8Bncj9y9pRJ23POSAynBfpNXXiBJGDd9Z5h9G1ApNqrk7ui-cSUcJeebjx_V-WcR0LuUhaiFKy4Kw0IyjBU0lTYciWLKOpJJrgl2YrNM_jWcLJaDgIyMbsCsproxqG7eN_j4owNPpSb2t9u3IuRwR4tVYZOCiy6RdLlYI3uuhzHUK0yeYOt7-aWN5NOTGHDCCBs4Q';
@@ -18,7 +19,8 @@ function loadFromStorage(key, fallback) {
 }
 
 export default function App() {
-  const [activeRepo, setActiveRepo] = useState('npm');
+  const [activePage, setActivePage]   = useState('upload');
+  const [activeRepo, setActiveRepo]   = useState('npm');
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState(() =>
     loadFromStorage(SETTINGS_KEY, { nexusUrl: '', username: '', password: '' })
@@ -50,45 +52,59 @@ export default function App() {
 
   return (
     <div className="bg-surface text-on-surface min-h-screen selection:bg-accent selection:text-white">
-      <Sidebar nexusLogo={NEXUS_LOGO} onOpenSettings={() => setShowSettings(true)} />
+      <Sidebar
+        nexusLogo={NEXUS_LOGO}
+        onOpenSettings={() => setShowSettings(true)}
+        activePage={activePage}
+        onNavigate={setActivePage}
+      />
       <main className="ml-64 p-10 flex flex-col gap-12 max-w-[1400px]">
-        <section>
-          <h2 className="text-5xl font-extrabold tracking-tight text-primary mb-4">Upload Assets</h2>
-          <p className="text-on-surface-variant text-lg max-w-2xl leading-relaxed">
-            Push repository builds, container images, and binary artifacts to the Nexus network.
-            Select your target repository type and monitor deployment status.
-          </p>
-        </section>
 
-        <RepoSelector
-          active={activeRepo}
-          onChange={setActiveRepo}
-          repoNames={repoNames}
-          onRepoNameChange={handleRepoNameChange}
-        />
+        {activePage === 'upload' && (
+          <>
+            <section>
+              <h2 className="text-5xl font-extrabold tracking-tight text-primary mb-4">Upload Assets</h2>
+              <p className="text-on-surface-variant text-lg max-w-2xl leading-relaxed">
+                Push repository builds, container images, and binary artifacts to the Nexus network.
+                Select your target repository type and monitor deployment status.
+              </p>
+            </section>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-          <div className="lg:col-span-7 flex flex-col gap-10">
-            <UploadZone
-              onFiles={addFiles}
-              repoType={activeRepo}
-              extraFields={extraFields}
-              onExtraChange={setExtraFields}
+            <RepoSelector
+              active={activeRepo}
+              onChange={setActiveRepo}
+              repoNames={repoNames}
+              onRepoNameChange={handleRepoNameChange}
             />
-            <UploadSummary
-              totalSize={totalSize}
-              estimatedTime={estimatedTime}
-              activeFormat={activeRepo.toUpperCase()}
-            />
-          </div>
-          <div className="lg:col-span-5">
-            <UploadQueue
-              queue={queue}
-              onClearCompleted={clearCompleted}
-              onRetry={retryItem}
-            />
-          </div>
-        </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+              <div className="lg:col-span-7 flex flex-col gap-10">
+                <UploadZone
+                  onFiles={addFiles}
+                  repoType={activeRepo}
+                  extraFields={extraFields}
+                  onExtraChange={setExtraFields}
+                />
+                <UploadSummary
+                  totalSize={totalSize}
+                  estimatedTime={estimatedTime}
+                  activeFormat={activeRepo.toUpperCase()}
+                />
+              </div>
+              <div className="lg:col-span-5">
+                <UploadQueue
+                  queue={queue}
+                  onClearCompleted={clearCompleted}
+                  onRetry={retryItem}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {activePage === 'ldap' && (
+          <LdapPage settings={settings} />
+        )}
 
         <footer className="mt-auto py-10 border-t border-slate-100 flex justify-between items-center">
           <div className="flex items-center gap-4">

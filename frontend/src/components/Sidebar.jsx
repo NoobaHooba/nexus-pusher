@@ -1,6 +1,11 @@
 import React from 'react';
 
-export default function Sidebar({ nexusLogo, onOpenSettings }) {
+const NAV_ITEMS = [
+  { id: 'upload', icon: 'rocket_launch', label: 'Pushes' },
+  { id: 'ldap',   icon: 'group',         label: 'LDAP & Access' },
+];
+
+export default function Sidebar({ nexusLogo, onOpenSettings, activePage, onNavigate }) {
   return (
     <aside className="h-screen w-64 fixed left-0 top-0 z-40 bg-white border-r border-slate-100 flex flex-col p-6 gap-2">
       <div className="flex items-center gap-3 mb-10">
@@ -13,22 +18,23 @@ export default function Sidebar({ nexusLogo, onOpenSettings }) {
         </div>
       </div>
       <nav className="flex-1 flex flex-col gap-2">
-        <a href="#" className="flex items-center gap-3 px-4 py-3 text-on-surface-variant font-medium text-sm hover:bg-slate-50 transition-all rounded-lg">
-          <span className="material-symbols-outlined text-[20px]">dashboard</span>
-          <span>Overview</span>
-        </a>
-        <a href="#" className="flex items-center gap-3 px-4 py-3 text-primary font-bold text-sm bg-accent-dim/50 rounded-lg transition-all">
-          <span className="material-symbols-outlined text-[20px] text-accent">rocket_launch</span>
-          <span>Pushes</span>
-        </a>
-        <a href="#" className="flex items-center gap-3 px-4 py-3 text-on-surface-variant font-medium text-sm hover:bg-slate-50 transition-all rounded-lg">
-          <span className="material-symbols-outlined text-[20px]">monitoring</span>
-          <span>Metrics</span>
-        </a>
-        <a href="#" className="flex items-center gap-3 px-4 py-3 text-on-surface-variant font-medium text-sm hover:bg-slate-50 transition-all rounded-lg">
-          <span className="material-symbols-outlined text-[20px]">group</span>
-          <span>LDAP group</span>
-        </a>
+        {NAV_ITEMS.map(({ id, icon, label }) => {
+          const active = activePage === id;
+          return (
+            <button
+              key={id}
+              onClick={() => onNavigate(id)}
+              className={`flex items-center gap-3 px-4 py-3 font-medium text-sm transition-all rounded-lg w-full text-left ${
+                active
+                  ? 'text-primary font-bold bg-accent-dim/50'
+                  : 'text-on-surface-variant hover:bg-slate-50'
+              }`}
+            >
+              <span className={`material-symbols-outlined text-[20px] ${active ? 'text-accent' : ''}`}>{icon}</span>
+              <span>{label}</span>
+            </button>
+          );
+        })}
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-slate-100 pt-6">
         <button onClick={onOpenSettings} className="flex items-center gap-3 px-4 py-2 text-on-surface-variant text-sm font-medium hover:text-primary transition-colors">

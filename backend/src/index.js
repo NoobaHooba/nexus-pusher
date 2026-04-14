@@ -4,6 +4,7 @@ const cors = require('cors');
 const uploadRoutes   = require('./routes/upload');
 const settingsRoutes = require('./routes/settings');
 const validateRoutes = require('./routes/validate');
+const ldapRoutes     = require('./routes/ldap');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -14,6 +15,7 @@ app.use(express.json());
 app.use('/api/upload',   uploadRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/validate', validateRoutes);
+app.use('/api/ldap',     ldapRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
