@@ -1,15 +1,26 @@
 import React, { useState, useEffect } from 'react';
 
+// 15-second client-side timeout so the UI never hangs if the backend is slow.
+const VALIDATE_TIMEOUT_MS = 15_000;
+
 async function validateCredentials({ nexusUrl, username, password }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VALIDATE_TIMEOUT_MS);
   try {
     const res = await fetch('/api/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nexusUrl, username, password }),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     const data = await res.json();
     return data;
   } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') {
+      return { ok: false, message: `Validation timed out after ${VALIDATE_TIMEOUT_MS / 1000} s — backend may be unreachable` };
+    }
     return { ok: false, message: 'Cannot reach the backend — is the backend container running?' };
   }
 }
@@ -20,8 +31,6 @@ export default function SettingsModal({ settings, onSave, onClose }) {
   const [status, setStatus]   = useState(null);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  // FIX 5: SettingsModal had no keyboard handler. Pressing Escape had no
-  // effect, forcing mouse-only dismissal — a usability and accessibility gap.
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape' && !testing) onClose(); };
     window.addEventListener('keydown', onKey);
@@ -38,8 +47,6 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     if (result.ok) onSave(form);
   };
 
-  // FIX 5 (cont.): Also block Escape from bubbling when modal is open so it
-  // doesn’t accidentally trigger other keydown listeners in parent components.
   const handleBackdropClick = (e) => {
     if (e.target === e.currentTarget && !testing) onClose();
   };
@@ -47,7 +54,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
   const fields = [
     { key: 'nexusUrl',    label: 'Nexus URL',         placeholder: 'http://nexus:8081',   type: 'text',     hint: 'Direct Nexus URL — the backend contacts it server-side, no proxy needed.' },
     { key: 'username',    label: 'Username',           placeholder: 'admin',               type: 'text' },
-    { key: 'password',    label: 'Password',           placeholder: '••••••••',            type: 'password' },
+    { key: 'password',    label: 'Password',           placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', type: 'password' },
     { key: 'defaultRepo', label: 'Default Repository', placeholder: 'maven-releases',      type: 'text' },
   ];
 
@@ -80,8 +87,6 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 value={form[key] || ''}
                 onChange={e => set(key, e.target.value)}
                 placeholder={placeholder}
-                // FIX 6: Added onKeyDown Enter handler so the form can be
-                // submitted with Enter without reaching for the mouse.
                 onKeyDown={e => { if (e.key === 'Enter' && !testing) handleSave(); }}
                 className="px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all"
               />
