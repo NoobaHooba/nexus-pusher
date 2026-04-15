@@ -6,10 +6,11 @@
  * given name (and optional version) already exists in the target repo.
  * Returns:
  *   { exists: boolean, components: Array<{ name, version, format, downloadUrl }> }
+ *
+ * Uses Node 18+ built-in global fetch — no node-fetch dependency needed.
  */
 const express = require('express');
 const router  = express.Router();
-const fetch   = require('node-fetch');
 
 router.post('/', async (req, res) => {
   const { nexusUrl, username, password, repo, name, version } = req.body;
