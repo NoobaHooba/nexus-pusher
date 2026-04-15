@@ -7,23 +7,36 @@ const NAV_ITEMS = [
   { id: 'ldap',    icon: 'group',          label: 'LDAP & Access' },
 ];
 
+/**
+ * Ask the BACKEND to check Nexus reachability.
+ * The browser cannot reach Docker-internal hostnames like http://nexus:8081
+ * directly, but the backend container can. Passing nexusUrl as a query param
+ * makes the backend do a server-side ping and return the result.
+ */
 async function runHealthChecks(nexusUrl) {
-  const results = { backend: false, nexus: false };
+  const results = { backend: false, nexus: null, nexusMs: null };
   try {
-    const r = await fetch('/api/health', { cache: 'no-store' });
-    results.backend = r.ok;
-  } catch (_) {}
-  if (nexusUrl) {
-    try {
-      await fetch(`${nexusUrl.replace(/\/$/, '')}/service/rest/v1/status`, { cache: 'no-store', mode: 'no-cors' });
-      results.nexus = true;
-    } catch (_) {}
+    const params = nexusUrl ? `?nexusUrl=${encodeURIComponent(nexusUrl)}` : '';
+    const r = await fetch(`/api/health${params}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (r.ok) {
+      results.backend = true;
+      const data = await r.json();
+      if (nexusUrl) {
+        results.nexus   = data.nexus   ?? null;
+        results.nexusMs = data.nexusMs ?? null;
+      }
+    }
+  } catch (_) {
+    // backend unreachable
   }
   return results;
 }
 
 export default function Sidebar({ nexusLogo, onOpenSettings, activePage, onNavigate, settings, theme, onToggleTheme }) {
-  const [health, setHealth]     = useState({ backend: null, nexus: null });
+  const [health, setHealth]     = useState({ backend: null, nexus: null, nexusMs: null });
   const [checking, setChecking] = useState(false);
   const intervalRef = useRef(null);
   const nexusUrl    = settings?.nexusUrl || '';
@@ -106,6 +119,7 @@ export default function Sidebar({ nexusLogo, onOpenSettings, activePage, onNavig
             <span className={`material-symbols-outlined text-[14px] ${checking ? 'animate-spin' : ''}`}>refresh</span>
           </button>
         </div>
+
         <div className="flex items-center gap-2 mb-1.5">
           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot(health.backend)}`} />
           <span className="text-xs text-on-surface-variant dark:text-dark-text-muted font-medium">Backend</span>
@@ -115,9 +129,13 @@ export default function Sidebar({ nexusLogo, onOpenSettings, activePage, onNavig
             {health.backend === null ? '—' : health.backend ? 'OK' : 'DOWN'}
           </span>
         </div>
+
         <div className="flex items-center gap-2 mb-3">
           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${nexusUrl ? dot(health.nexus) : 'bg-slate-200 dark:bg-dark-border'}`} />
           <span className="text-xs text-on-surface-variant dark:text-dark-text-muted font-medium">Nexus</span>
+          {health.nexusMs !== null && health.nexus && (
+            <span className="text-[9px] text-slate-300 dark:text-dark-text-faint font-mono">{health.nexusMs}ms</span>
+          )}
           <span className={`ml-auto text-[10px] font-bold uppercase tracking-wide ${
             !nexusUrl ? 'text-slate-300 dark:text-dark-text-faint' :
             health.nexus === null ? 'text-slate-400' :
@@ -126,6 +144,7 @@ export default function Sidebar({ nexusLogo, onOpenSettings, activePage, onNavig
             {!nexusUrl ? 'Not set' : health.nexus === null ? '—' : health.nexus ? 'OK' : 'DOWN'}
           </span>
         </div>
+
         <div className={`flex items-center gap-1.5 text-[10px] font-semibold ${statusColor}`}>
           {!overallChecking && <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${overallOk ? 'bg-green-400' : 'bg-red-400'}`} />}
           <span>{statusLabel}</span>
@@ -146,8 +165,6 @@ export default function Sidebar({ nexusLogo, onOpenSettings, activePage, onNavig
           <span className="material-symbols-outlined text-[18px]">description</span>
           <span>Documentation</span>
         </a>
-
-        {/* Theme toggle */}
         <button
           onClick={onToggleTheme}
           className="mt-1 flex items-center gap-3 px-4 py-2 text-on-surface-variant dark:text-dark-text-muted text-sm font-medium hover:text-primary dark:hover:text-dark-text transition-colors"
