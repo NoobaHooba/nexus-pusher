@@ -5,6 +5,7 @@ const axios = require('axios');
  * - validateStatus: throws on anything that is not 2xx
  * - Extracts a human-readable error message from Nexus HTML/JSON responses
  * - Sets err.isDuplicate = true when Nexus reports a file already exists
+ * - Logs the raw Nexus response body to stderr so docker logs show the detail
  */
 async function nexusRequest(config) {
   try {
@@ -18,27 +19,34 @@ async function nexusRequest(config) {
   } catch (err) {
     if (err.response) {
       const { status, data } = err.response;
-      let message = `Nexus returned HTTP ${status}`;
+
+      // Always log the raw body so "docker logs backend-1" shows exactly
+      // what Nexus said, even when the UI only shows a trimmed message.
+      console.error(
+        `[nexusRequest] Nexus ${status} for ${config.method?.toUpperCase()} ${config.url}\n` +
+        `  body: ${typeof data === 'string' ? data.slice(0, 800) : JSON.stringify(data).slice(0, 800)}`
+      );
+
+      let message    = `Nexus returned HTTP ${status}`;
       let isDuplicate = false;
 
       if (typeof data === 'string') {
         const titleMatch = data.match(/<title>([^<]+)<\/title>/i);
         if (titleMatch) {
           message = `Nexus: ${titleMatch[1].trim()}`;
-        } else if (data.length < 300) {
+        } else if (data.length < 500) {
           message = `Nexus: ${data.trim()}`;
         }
-        // Nexus plain-text 400 for duplicates
         if (status === 400 && /already exist|duplicate|conflict/i.test(data)) {
           isDuplicate = true;
           message = 'File already exists in repository';
         }
       } else if (data && typeof data === 'object') {
-        if (data.message) message = `Nexus: ${data.message}`;
-        else if (Array.isArray(data.errors) && data.errors.length > 0) {
+        if (data.message) {
+          message = `Nexus: ${data.message}`;
+        } else if (Array.isArray(data.errors) && data.errors.length > 0) {
           message = `Nexus: ${data.errors.map(e => e.message || JSON.stringify(e)).join('; ')}`;
         }
-        // Nexus REST API JSON 400 for duplicates
         if (status === 400 && /already exist|duplicate|conflict/i.test(JSON.stringify(data))) {
           isDuplicate = true;
           message = 'File already exists in repository';
