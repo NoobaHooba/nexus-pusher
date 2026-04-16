@@ -15,9 +15,15 @@ services:
       - '3001:3001'
     environment:
       - PORT=3001
+      - DATA_DIR=/app/data
+    volumes:
+      - nexus-pusher-data:/app/data
     networks:
       - nexus-net
 
 networks:
   nexus-net:
     external: true
+
+volumes:
+  nexus-pusher-data:

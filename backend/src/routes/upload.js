@@ -2,6 +2,7 @@ const express = require('express');
 const multer  = require('multer');
 const fs      = require('fs');
 const router  = express.Router();
+const { record } = require('../lib/db');
 
 const mavenUploader  = require('../uploaders/maven');
 const npmUploader    = require('../uploaders/npm');
@@ -21,8 +22,6 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
 
-// 1 GB hard cap — prevents OOM on the backend, especially for npm uploads
-// which must hold the entire tarball in memory as base64.
 const upload = multer({
   storage,
   limits: { fileSize: 1 * 1024 * 1024 * 1024 },
@@ -63,21 +62,36 @@ router.post('/:type', upload.array('files'), async (req, res) => {
 
   const results = [];
   for (const file of files) {
+    let uploadStatus = 'error';
+    let uploadError  = null;
     try {
       const result = await uploader.upload({ file, nexusUrl, repo, username, password, extra });
+      uploadStatus = 'success';
       results.push({ file: file.originalname, status: 'success', result });
     } catch (err) {
+      uploadStatus = err.isDuplicate ? 'warning' : 'error';
+      uploadError  = err.message;
       results.push({
         file: file.originalname,
-        status: err.isDuplicate ? 'warning' : 'error',
-        error: err.message,
+        status: uploadStatus,
+        error: uploadError,
       });
     } finally {
+      // Persist to audit log regardless of success/failure
+      record({
+        username:  username  || '',
+        nexus_url: nexusUrl  || '',
+        repo:      repo      || '',
+        type,
+        filename:  file.originalname,
+        size:      file.size,
+        status:    uploadStatus,
+        error:     uploadError,
+      });
       fs.unlink(file.path, () => {});
     }
   }
 
-  // Only return 422 if there are real errors (not warnings/duplicates)
   const hasRealErrors = results.some(r => r.status === 'error');
   if (hasRealErrors && results.every(r => r.status !== 'success')) {
     return res.status(422).json({ error: results.find(r => r.status === 'error').error, results });
@@ -86,7 +100,6 @@ router.post('/:type', upload.array('files'), async (req, res) => {
   res.json({ results });
 });
 
-// Return a clean 400 when multer rejects an oversized file
 router.use((err, req, res, next) => {
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({ error: 'File too large — maximum upload size is 1 GB' });
