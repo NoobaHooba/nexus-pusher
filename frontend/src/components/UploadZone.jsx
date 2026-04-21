@@ -99,6 +99,32 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
 
   const hint = REPO_HINTS[repoType];
 
+  if (repoType === 'docker') {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-3xl p-10 flex flex-col gap-5">
+          <div className="w-16 h-16 rounded-2xl bg-accent-dim dark:bg-dark-accent-dim flex items-center justify-center">
+            <span className="material-symbols-outlined text-3xl text-accent dark:text-dark-accent">dock</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            <h4 className="text-2xl font-bold text-primary dark:text-dark-text">Docker Images Use the CLI</h4>
+            <p className="text-on-surface-variant dark:text-dark-text-muted max-w-2xl">
+              In your closed network, Docker images are pushed directly to the `docker.io` repository with the Docker client, not uploaded through the browser.
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 dark:bg-dark-surface-2 border border-slate-100 dark:border-dark-border px-5 py-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint mb-2">
+              Command
+            </p>
+            <code className="block text-sm font-mono text-primary dark:text-dark-text">
+              docker push &lt;image&gt;:&lt;tag&gt;
+            </code>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {warnings.length > 0 && (

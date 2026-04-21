@@ -2,11 +2,13 @@
  * nexusApi.js
  *
  * All Nexus requests go through the Express backend.
- * The frontend nginx proxies /api → http://backend:3001, so we use
- * a plain relative path — no hardcoded host or port anywhere.
+ * By default we use plain relative /api paths. When the frontend is served
+ * from an external nginx with no proxying, settings.backendUrl (or
+ * VITE_BACKEND_URL at build time) can point directly to the backend route.
  */
+import { apiUrl } from './backendApi';
 
-async function backendUpload({ type, nexusUrl, repo, username, password, file, extra, onProgress }) {
+async function backendUpload({ type, nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
   const fd = new FormData();
   fd.append('files', file, file.name);
   fd.append('nexusUrl', nexusUrl || '');
@@ -21,7 +23,7 @@ async function backendUpload({ type, nexusUrl, repo, username, password, file, e
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `/api/upload/${type}`);
+    xhr.open('POST', apiUrl(settings, `/api/upload/${type}`));
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {
@@ -48,35 +50,35 @@ async function backendUpload({ type, nexusUrl, repo, username, password, file, e
   });
 }
 
-export function uploadMaven({ nexusUrl, repo, username, password, file, extra, onProgress }) {
-  return backendUpload({ type: 'maven', nexusUrl, repo, username, password, file, extra, onProgress });
+export function uploadMaven({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
+  return backendUpload({ type: 'maven', nexusUrl, repo, username, password, file, extra, onProgress, settings });
 }
-export function uploadNpm({ nexusUrl, repo, username, password, file, onProgress }) {
-  return backendUpload({ type: 'npm', nexusUrl, repo, username, password, file, extra: {}, onProgress });
+export function uploadNpm({ nexusUrl, repo, username, password, file, onProgress, settings }) {
+  return backendUpload({ type: 'npm', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
 }
-export function uploadNuget({ nexusUrl, repo, username, password, file, onProgress }) {
-  return backendUpload({ type: 'nuget', nexusUrl, repo, username, password, file, extra: {}, onProgress });
+export function uploadNuget({ nexusUrl, repo, username, password, file, onProgress, settings }) {
+  return backendUpload({ type: 'nuget', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
 }
-export function uploadPypi({ nexusUrl, repo, username, password, file, onProgress }) {
-  return backendUpload({ type: 'pypi', nexusUrl, repo, username, password, file, extra: {}, onProgress });
+export function uploadPypi({ nexusUrl, repo, username, password, file, onProgress, settings }) {
+  return backendUpload({ type: 'pypi', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
 }
 export function uploadDocker() {
   return Promise.reject(new Error(
-    'Docker images cannot be uploaded via the browser. ' +
-    'Use: docker tag <image> <host>:<port>/<name>:<tag> && docker push'
+    'Docker images are pushed outside the browser in this environment. ' +
+    'Use: docker push <image>:<tag>'
   ));
 }
-export function uploadYum({ nexusUrl, repo, username, password, file, extra, onProgress }) {
-  return backendUpload({ type: 'yum', nexusUrl, repo, username, password, file, extra, onProgress });
+export function uploadYum({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
+  return backendUpload({ type: 'yum', nexusUrl, repo, username, password, file, extra, onProgress, settings });
 }
-export function uploadApt({ nexusUrl, repo, username, password, file, onProgress }) {
-  return backendUpload({ type: 'apt', nexusUrl, repo, username, password, file, extra: {}, onProgress });
+export function uploadApt({ nexusUrl, repo, username, password, file, onProgress, settings }) {
+  return backendUpload({ type: 'apt', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
 }
-export function uploadHelm({ nexusUrl, repo, username, password, file, onProgress }) {
-  return backendUpload({ type: 'helm', nexusUrl, repo, username, password, file, extra: {}, onProgress });
+export function uploadHelm({ nexusUrl, repo, username, password, file, onProgress, settings }) {
+  return backendUpload({ type: 'helm', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
 }
-export function uploadRaw({ nexusUrl, repo, username, password, file, extra, onProgress }) {
-  return backendUpload({ type: 'raw', nexusUrl, repo, username, password, file, extra, onProgress });
+export function uploadRaw({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
+  return backendUpload({ type: 'raw', nexusUrl, repo, username, password, file, extra, onProgress, settings });
 }
 
 export const UPLOADERS = {
@@ -104,9 +106,9 @@ export const UPLOADERS = {
  * @param {string} [opts.version]  — optional version string
  * @returns {Promise<{ exists: boolean, components: Array, warning?: string }>}
  */
-export async function checkDuplicate({ nexusUrl, username, password, repo, name, version }) {
+export async function checkDuplicate({ nexusUrl, username, password, repo, name, version, settings }) {
   try {
-    const res = await fetch('/api/check-duplicate', {
+    const res = await fetch(apiUrl(settings, '/api/check-duplicate'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nexusUrl, username, password, repo, name, version }),

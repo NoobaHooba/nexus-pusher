@@ -122,6 +122,7 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
               password: item.settings.password,
               repo:     item.repoName,
               name:     item.name,
+              settings: item.settings,
             });
 
             if (dupResult.exists) {
@@ -179,6 +180,7 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
               password:   item.settings.password,
               file:       item.file,
               extra:      item.extraFields,
+              settings:   item.settings,
               onProgress: (pct) => updateItem(item.id, { progress: pct }),
             });
 

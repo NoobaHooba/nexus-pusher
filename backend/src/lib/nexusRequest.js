@@ -22,9 +22,12 @@ async function nexusRequest(config) {
 
       // Always log the raw body so "docker logs backend-1" shows exactly
       // what Nexus said, even when the UI only shows a trimmed message.
+      const rawBody = typeof data === 'string'
+        ? data.slice(0, 800)
+        : JSON.stringify(data).slice(0, 800);
       console.error(
         `[nexusRequest] Nexus ${status} for ${config.method?.toUpperCase()} ${config.url}\n` +
-        `  body: ${typeof data === 'string' ? data.slice(0, 800) : JSON.stringify(data).slice(0, 800)}`
+        `  body: ${rawBody}`
       );
 
       let message    = `Nexus returned HTTP ${status}`;
@@ -34,6 +37,8 @@ async function nexusRequest(config) {
         const titleMatch = data.match(/<title>([^<]+)<\/title>/i);
         if (titleMatch) {
           message = `Nexus: ${titleMatch[1].trim()}`;
+        } else if (data.trim().length === 0) {
+          message = `Nexus returned HTTP ${status} with an empty response body`;
         } else if (data.length < 500) {
           message = `Nexus: ${data.trim()}`;
         }

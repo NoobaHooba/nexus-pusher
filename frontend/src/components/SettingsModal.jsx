@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { apiUrl, getBackendBaseUrl } from '../lib/backendApi';
 
 // 15-second client-side timeout so the UI never hangs if the backend is slow.
 const VALIDATE_TIMEOUT_MS = 15_000;
 
-async function validateCredentials({ nexusUrl, username, password }) {
+async function validateCredentials({ nexusUrl, username, password, backendUrl }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VALIDATE_TIMEOUT_MS);
   try {
-    const res = await fetch('/api/validate', {
+    const res = await fetch(apiUrl({ backendUrl }, '/api/validate'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nexusUrl, username, password }),
@@ -21,12 +22,19 @@ async function validateCredentials({ nexusUrl, username, password }) {
     if (err.name === 'AbortError') {
       return { ok: false, message: `Validation timed out after ${VALIDATE_TIMEOUT_MS / 1000} s — backend may be unreachable` };
     }
-    return { ok: false, message: 'Cannot reach the backend — is the backend container running?' };
+    return { ok: false, message: 'Cannot reach the backend — check the Backend URL or backend route.' };
   }
 }
 
 export default function SettingsModal({ settings, onSave, onClose }) {
-  const [form, setForm]       = useState({ nexusUrl: '', username: '', password: '', defaultRepo: '', ...settings });
+  const [form, setForm]       = useState({
+    nexusUrl: '',
+    username: '',
+    password: '',
+    defaultRepo: '',
+    backendUrl: getBackendBaseUrl(settings),
+    ...settings,
+  });
   const [testing, setTesting] = useState(false);
   const [status, setStatus]   = useState(null);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -52,6 +60,13 @@ export default function SettingsModal({ settings, onSave, onClose }) {
   };
 
   const fields = [
+    {
+      key: 'backendUrl',
+      label: 'Backend URL',
+      placeholder: 'https://nexus-pusher-backend.apps.example.com',
+      type: 'text',
+      hint: 'Optional. Use this when the frontend is served outside OpenShift and cannot proxy /api locally.',
+    },
     { key: 'nexusUrl',    label: 'Nexus URL',         placeholder: 'http://nexus:8081',   type: 'text',     hint: 'Direct Nexus URL — the backend contacts it server-side, no proxy needed.' },
     { key: 'username',    label: 'Username',           placeholder: 'admin',               type: 'text' },
     { key: 'password',    label: 'Password',           placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', type: 'password' },
@@ -75,7 +90,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
           </button>
         </div>
         <p className="text-sm text-on-surface-variant dark:text-dark-text-muted">
-          Credentials are sent to the backend and tested against Nexus server-side.
+          Credentials are sent to the backend and tested against Nexus server-side. If this frontend is hosted outside OpenShift, set Backend URL to the backend route.
         </p>
         <div className="flex flex-col gap-4">
           {fields.map(({ key, label, placeholder, type, hint }) => (

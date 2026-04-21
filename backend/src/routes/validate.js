@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { describeFetchError } = require('../lib/describeFetchError');
 
 // How long to wait for Nexus before giving up (ms).
 // Nexus containers can be slow on first hit; 10 s is generous but won't hang forever.
@@ -52,11 +53,12 @@ router.post('/', async (req, res) => {
   } catch (err) {
     // AbortError = timeout; TypeError = DNS / connection refused.
     const isTimeout = err.name === 'AbortError' || err.name === 'TimeoutError';
+    console.error('[validate] Nexus reachability check failed:', describeFetchError(err));
     return res.json({
       ok: false,
       message: isTimeout
         ? `Nexus did not respond within ${TIMEOUT_MS / 1000} s — is the URL correct and the container running?`
-        : `Cannot reach Nexus — ${err.message}`,
+        : `Cannot reach Nexus — ${describeFetchError(err)}`,
     });
   }
 
@@ -103,11 +105,12 @@ router.post('/', async (req, res) => {
     return res.json({ ok: false, message: `Nexus is up, but returned HTTP ${authRes.status} for the credential check` });
   } catch (err) {
     const isTimeout = err.name === 'AbortError' || err.name === 'TimeoutError';
+    console.error('[validate] Nexus credential check failed:', describeFetchError(err));
     return res.json({
       ok: false,
       message: isTimeout
         ? `Nexus credential check timed out after ${TIMEOUT_MS / 1000} s`
-        : `Credential check failed — ${err.message}`,
+        : `Credential check failed — ${describeFetchError(err)}`,
     });
   }
 });

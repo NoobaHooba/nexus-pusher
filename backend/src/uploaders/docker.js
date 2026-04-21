@@ -2,19 +2,20 @@ const { execFileSync } = require('child_process');
 const path = require('path');
 
 /**
- * Loads a Docker image tarball and pushes it to a Nexus Docker-hosted registry.
+ * Loads a Docker image tarball and pushes it to a Docker registry.
  * Requires Docker CLI to be available in the backend container.
- * extra: { imageName, imageTag, dockerPort }
+ * extra: { imageName, imageTag, registry }
  *
  * Uses execFileSync (not execSync) to prevent shell injection — arguments are
  * passed as an array and never interpolated into a shell string.
  */
 async function upload({ file, nexusUrl, repo, username, password, extra }) {
-  const registryUrl = new URL(nexusUrl);
-  const registry = `${registryUrl.hostname}:${extra.dockerPort || 8082}`;
+  const registry = (extra.registry || 'docker.io').trim();
   const imageName = extra.imageName || path.basename(file.originalname, '.tar');
   const imageTag  = extra.imageTag  || 'latest';
-  const fullTag   = `${registry}/${imageName}:${imageTag}`;
+  const fullTag   = registry === 'docker.io'
+    ? `${imageName}:${imageTag}`
+    : `${registry}/${imageName}:${imageTag}`;
 
   const opts = { timeout: 10 * 60 * 1000, stdio: 'pipe' }; // 10-minute timeout
 

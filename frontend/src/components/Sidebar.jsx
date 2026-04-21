@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { apiUrl } from '../lib/backendApi';
 
 const NAV_ITEMS = [
   { id: 'upload',  icon: 'rocket_launch', label: 'Pushes' },
@@ -13,11 +14,12 @@ const NAV_ITEMS = [
  * directly, but the backend container can. Passing nexusUrl as a query param
  * makes the backend do a server-side ping and return the result.
  */
-async function runHealthChecks(nexusUrl) {
+async function runHealthChecks(settings) {
   const results = { backend: false, nexus: null, nexusMs: null };
   try {
+    const nexusUrl = settings?.nexusUrl || '';
     const params = nexusUrl ? `?nexusUrl=${encodeURIComponent(nexusUrl)}` : '';
-    const r = await fetch(`/api/health${params}`, {
+    const r = await fetch(apiUrl(settings, `/api/health${params}`), {
       cache: 'no-store',
       signal: AbortSignal.timeout(8_000),
     });
@@ -43,7 +45,7 @@ export default function Sidebar({ nexusLogo, onOpenSettings, activePage, onNavig
 
   const check = async () => {
     setChecking(true);
-    const r = await runHealthChecks(nexusUrl);
+    const r = await runHealthChecks(settings);
     setHealth(r);
     setChecking(false);
   };
@@ -53,7 +55,7 @@ export default function Sidebar({ nexusLogo, onOpenSettings, activePage, onNavig
     intervalRef.current = setInterval(check, 30_000);
     return () => clearInterval(intervalRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nexusUrl]);
+  }, [nexusUrl, settings]);
 
   const dot = (status) => {
     if (status === null) return 'bg-slate-300 dark:bg-slate-600 animate-pulse';

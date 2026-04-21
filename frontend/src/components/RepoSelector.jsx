@@ -5,7 +5,7 @@ export const REPO_TYPES = [
   { id: 'npm',    label: 'NPM',    icon: 'javascript',    placeholder: 'e.g. npm-internal' },
   { id: 'nuget',  label: 'NuGet',  icon: 'grid_view',     placeholder: 'e.g. nuget-hosted' },
   { id: 'pypi',   label: 'PyPI',   icon: 'code',          placeholder: 'e.g. pypi-internal' },
-  { id: 'docker', label: 'Docker', icon: 'dock',          placeholder: 'e.g. docker-private' },
+  { id: 'docker', label: 'Docker', icon: 'dock',          placeholder: 'Handled via docker push' },
   { id: 'yum',    label: 'Yum',    icon: 'inventory_2',   placeholder: 'e.g. yum-hosted' },
   { id: 'apt',    label: 'Apt',    icon: 'terminal',      placeholder: 'e.g. apt-hosted' },
   { id: 'helm',   label: 'Helm',   icon: 'sailing',       placeholder: 'e.g. helm-charts' },
@@ -50,6 +50,24 @@ export default function RepoSelector({ active, onChange, repoNames, onRepoNameCh
 
       {active && (() => {
         const type = REPO_TYPES.find(r => r.id === active);
+        if (active === 'docker') {
+          return (
+            <div className="mt-6 flex items-start gap-4 bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-2xl px-6 py-4 shadow-sm">
+              <span className="material-symbols-outlined text-accent dark:text-dark-accent text-[20px] mt-0.5">info</span>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">
+                  Docker Workflow
+                </label>
+                <p className="text-sm font-semibold text-primary dark:text-dark-text">
+                  Docker images are pushed directly to `docker.io` with the Docker CLI.
+                </p>
+                <p className="text-xs text-on-surface-variant dark:text-dark-text-muted font-mono">
+                  docker push &lt;image&gt;:&lt;tag&gt;
+                </p>
+              </div>
+            </div>
+          );
+        }
         return (
           <div className="mt-6 flex items-center gap-4 bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-2xl px-6 py-4 shadow-sm">
             <span className="material-symbols-outlined text-accent dark:text-dark-accent text-[20px]">dns</span>

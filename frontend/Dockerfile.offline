@@ -1,29 +1,23 @@
-ARG INSTALL_MODE=online
 ARG VITE_BACKEND_URL=""
 
-FROM node:20-alpine AS frontend-base
+FROM node:20-alpine AS builder
+
 WORKDIR /app
 ARG VITE_BACKEND_URL
 ENV VITE_BACKEND_URL=${VITE_BACKEND_URL}
 
-FROM frontend-base AS frontend-deps-online
-COPY package.json ./
-RUN npm install
-
-FROM frontend-base AS frontend-deps-offline
 COPY package.json package-lock.json ./
 COPY node_modules ./node_modules
-
-FROM frontend-deps-${INSTALL_MODE} AS builder
 COPY index.html ./
-COPY package.json ./
 COPY postcss.config.js ./
 COPY tailwind.config.js ./
 COPY vite.config.js ./
 COPY src ./src
+
 RUN npm run build
 
 FROM nginx:alpine
+
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx-main.conf /etc/nginx/nginx.conf
 COPY nginx.conf /etc/nginx/conf.d/default.conf
