@@ -20,6 +20,29 @@ export async function fetchRepositories({ nexusUrl, username, password, settings
   return Array.isArray(json) ? json : [];
 }
 
+export async function runPreflight({ type, nexusUrl, repo, username, password, file, extra = {}, settings, preferences, defaultRepo }) {
+  const fd = new FormData();
+  fd.append('file', file, file.name);
+  fd.append('nexusUrl', nexusUrl || '');
+  fd.append('repo', repo || '');
+  fd.append('username', username || '');
+  fd.append('password', password || '');
+  fd.append('defaultRepo', defaultRepo || '');
+  if (preferences) fd.append('preferences', JSON.stringify(preferences));
+  Object.entries(extra || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) fd.append(key, value);
+  });
+
+  const res = await fetch(apiUrl(settings, `/api/preflight/${type}`), {
+    method: 'POST',
+    body: fd,
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
 async function backendUpload({ type, nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
   const fd = new FormData();
   fd.append('files', file, file.name);
@@ -47,7 +70,7 @@ async function backendUpload({ type, nexusUrl, repo, username, password, file, e
       let body;
       try { body = JSON.parse(xhr.responseText); } catch (_) { body = {}; }
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(body);
+        resolve(body?.results?.[0] || body);
       } else {
         reject(new Error(body.error || `Backend returned HTTP ${xhr.status}`));
       }
@@ -74,10 +97,10 @@ export function uploadNuget({ nexusUrl, repo, username, password, file, onProgre
 export function uploadPypi({ nexusUrl, repo, username, password, file, onProgress, settings }) {
   return backendUpload({ type: 'pypi', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
 }
-export function uploadDocker() {
+export function uploadDocker({ nexusUrl, repo, settings }) {
+  const registry = repo ? `${repo}` : (settings?.dockerRegistry || 'your Nexus Docker registry');
   return Promise.reject(new Error(
-    'Docker images are pushed outside the browser in this environment. ' +
-    'Use: docker push <image>:<tag>'
+    `Docker images are pushed with the Docker CLI to ${registry}. Use docker login, docker tag, and docker push against your Nexus registry.`
   ));
 }
 export function uploadYum({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
@@ -118,12 +141,12 @@ export const UPLOADERS = {
  * @param {string} [opts.version]  — optional version string
  * @returns {Promise<{ exists: boolean, components: Array, warning?: string }>}
  */
-export async function checkDuplicate({ nexusUrl, username, password, repo, name, version, settings }) {
+export async function checkDuplicate({ nexusUrl, username, password, repo, name, version, type, path, settings }) {
   try {
     const res = await fetch(apiUrl(settings, '/api/check-duplicate'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nexusUrl, username, password, repo, name, version }),
+      body: JSON.stringify({ nexusUrl, username, password, repo, name, version, type, path }),
     });
     if (!res.ok) return { exists: false, components: [] };
     return await res.json();

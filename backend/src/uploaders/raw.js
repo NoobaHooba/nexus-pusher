@@ -5,7 +5,8 @@ async function upload({ file, nexusUrl, repo, username, password, extra }) {
   const raw = (extra.directory || '').replace(/^\/+|\/+$/g, '');
   const dir = raw ? `/${raw}/` : '/';
   const filePath = `${dir}${file.originalname}`.replace(/^\//, '');
-  const url = `${nexusUrl}/repository/${repo}/${filePath}`;
+  const base = nexusUrl.replace(/\/$/, '');
+  const url = `${base}/repository/${repo}/${filePath}`;
 
   const response = await nexusRequest({
     method: 'PUT',
@@ -15,8 +16,8 @@ async function upload({ file, nexusUrl, repo, username, password, extra }) {
     auth: username ? { username, password } : undefined,
   });
 
-  const nexusUiUrl = `${nexusUrl}/#browse/browse:${repo}:${encodeURIComponent(filePath)}`;
-  return { url, nexusUiUrl, status: response.status };
+  const nexusUiUrl = `${base}/#browse/browse:${repo}:${encodeURIComponent(filePath)}`;
+  return { url, downloadUrl: url, path: filePath, nexusUiUrl, status: response.status };
 }
 
 module.exports = { upload };

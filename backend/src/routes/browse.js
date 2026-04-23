@@ -1,20 +1,6 @@
 const express = require('express');
 const router = express.Router();
-
-function makeHeaders(username, password) {
-  const h = { 'Content-Type': 'application/json' };
-  if (username) {
-    const token = Buffer.from(`${username}:${password || ''}`).toString('base64');
-    h['Authorization'] = `Basic ${token}`;
-  }
-  return h;
-}
-
-async function nexusFetch(url, headers) {
-  const res = await fetch(url, { headers });
-  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
-  return res.json();
-}
+const { fetchRepositories, makeHeaders, normalizeBaseUrl, searchAssets } = require('../lib/nexusClient');
 
 /**
  * POST /api/browse/repos
@@ -23,10 +9,8 @@ async function nexusFetch(url, headers) {
 router.post('/repos', async (req, res) => {
   const { nexusUrl, username, password } = req.body || {};
   if (!nexusUrl) return res.status(400).json({ error: 'nexusUrl is required' });
-  const base = nexusUrl.replace(/\/$/, '');
-  const headers = makeHeaders(username, password);
   try {
-    const repos = await nexusFetch(`${base}/service/rest/v1/repositories`, headers);
+    const repos = await fetchRepositories({ nexusUrl, username, password });
     return res.json(repos);
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message });
@@ -41,8 +25,6 @@ router.post('/repos', async (req, res) => {
 router.post('/search', async (req, res) => {
   const { nexusUrl, username, password, keyword, repository, format, continuationToken } = req.body || {};
   if (!nexusUrl) return res.status(400).json({ error: 'nexusUrl is required' });
-  const base = nexusUrl.replace(/\/$/, '');
-  const headers = makeHeaders(username, password);
 
   const params = new URLSearchParams();
   if (keyword)           params.set('q',                   keyword);
@@ -53,8 +35,12 @@ router.post('/search', async (req, res) => {
   params.set('pageSize', '50');
 
   try {
-    const url = `${base}/service/rest/v1/search/assets?${params.toString()}`;
-    const data = await nexusFetch(url, headers);
+    const data = await searchAssets({
+      nexusUrl,
+      username,
+      password,
+      query: Object.fromEntries(params.entries()),
+    });
     return res.json(data); // { items: [...], continuationToken }
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message });
@@ -69,10 +55,12 @@ router.post('/search', async (req, res) => {
 router.post('/asset', async (req, res) => {
   const { nexusUrl, username, password, id } = req.body || {};
   if (!nexusUrl || !id) return res.status(400).json({ error: 'nexusUrl and id are required' });
-  const base = nexusUrl.replace(/\/$/, '');
+  const base = normalizeBaseUrl(nexusUrl);
   const headers = makeHeaders(username, password);
   try {
-    const data = await nexusFetch(`${base}/service/rest/v1/assets/${id}`, headers);
+    const resFetch = await fetch(`${base}/service/rest/v1/assets/${id}`, { headers });
+    if (!resFetch.ok) throw Object.assign(new Error(`HTTP ${resFetch.status}`), { status: resFetch.status });
+    const data = await resFetch.json();
     return res.json(data);
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message });

@@ -28,6 +28,9 @@ export default function RepoSelector({
   availableRepos = [],
   reposLoading = false,
   reposError = '',
+  preferences = {},
+  defaultRepo = '',
+  onToggleFavorite,
 }) {
   const filteredRepos = active
     ? availableRepos
@@ -35,6 +38,20 @@ export default function RepoSelector({
         .sort((a, b) => a.name.localeCompare(b.name))
     : [];
   const selectedRepoName = repoNames[active] || '';
+  const favorites = preferences?.favoritesByFormat?.[active] || [];
+  const recents = preferences?.recentReposByFormat?.[active] || [];
+  const rankedRepos = [...filteredRepos].sort((a, b) => {
+    const score = (repoName) => {
+      let value = 0;
+      if (repoName === defaultRepo) value += 4;
+      if (favorites.includes(repoName)) value += 3;
+      const recentIndex = recents.indexOf(repoName);
+      if (recentIndex !== -1) value += Math.max(1, 3 - recentIndex);
+      return value;
+    };
+    return score(b.name) - score(a.name) || a.name.localeCompare(b.name);
+  });
+  const suggestedRepos = rankedRepos.slice(0, 3);
 
   return (
     <section>
@@ -82,10 +99,10 @@ export default function RepoSelector({
                   Docker Workflow
                 </label>
                 <p className="text-sm font-semibold text-primary dark:text-dark-text">
-                  Docker images are pushed directly to `docker.io` with the Docker CLI.
+                  Docker images are pushed to your Nexus Docker registry with the Docker CLI.
                 </p>
                 <p className="text-xs text-on-surface-variant dark:text-dark-text-muted font-mono">
-                  docker push &lt;image&gt;:&lt;tag&gt;
+                  docker login &lt;nexus-registry&gt; && docker push &lt;nexus-registry&gt;/&lt;image&gt;:&lt;tag&gt;
                 </p>
               </div>
             </div>
@@ -98,22 +115,54 @@ export default function RepoSelector({
               <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">
                 {type.label} Repository
               </label>
+              {suggestedRepos.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {suggestedRepos.map((repo) => (
+                    <button
+                      key={repo.name}
+                      onClick={() => onRepoNameChange(active, repo.name)}
+                      className={`px-3 py-1.5 rounded-full text-[11px] font-bold transition-colors ${
+                        selectedRepoName === repo.name
+                          ? 'bg-accent-dim/50 dark:bg-dark-accent-dim text-accent dark:text-dark-accent'
+                          : 'bg-slate-100 dark:bg-dark-surface-2 text-slate-500 dark:text-dark-text-muted'
+                      }`}
+                    >
+                      {repo.name}
+                    </button>
+                  ))}
+                </div>
+              )}
               {filteredRepos.length > 0 ? (
                 <>
-                  <select
-                    value={selectedRepoName}
-                    onChange={e => onRepoNameChange(active, e.target.value)}
-                    className="text-sm font-semibold text-primary dark:text-dark-text bg-transparent border-none outline-none w-full pr-8"
-                  >
-                    <option value="">Select a {type.label} repository</option>
-                    {filteredRepos.map((repo) => (
-                      <option key={repo.name} value={repo.name}>
-                        {repo.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={selectedRepoName}
+                      onChange={e => onRepoNameChange(active, e.target.value)}
+                      className="text-sm font-semibold text-primary dark:text-dark-text bg-transparent border-none outline-none w-full pr-8"
+                    >
+                      <option value="">Select a {type.label} repository</option>
+                      {rankedRepos.map((repo) => (
+                        <option key={repo.name} value={repo.name}>
+                          {repo.name}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedRepoName && (
+                      <button
+                        onClick={() => onToggleFavorite?.(active, selectedRepoName)}
+                        className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors ${
+                          favorites.includes(selectedRepoName)
+                            ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-500 dark:text-amber-300'
+                            : 'bg-slate-100 dark:bg-dark-surface-2 text-slate-400 dark:text-dark-text-faint'
+                        }`}
+                        title={favorites.includes(selectedRepoName) ? 'Unpin repo' : 'Pin repo'}
+                      >
+                        <span className="material-symbols-outlined text-[18px]">{favorites.includes(selectedRepoName) ? 'star' : 'star_outline'}</span>
+                      </button>
+                    )}
+                  </div>
                   <p className="text-[11px] text-slate-400 dark:text-dark-text-faint mt-1">
-                    Showing hosted {type.label.toLowerCase()} repositories from Nexus.
+                    Showing hosted {type.label.toLowerCase()} repositories from Nexus. Favorites, recents, and the default repo are ranked first.
                   </p>
                 </>
               ) : (

@@ -10,3 +10,5 @@ airgap/*.tar.gz
 airgap/*.tar.gz.sha256
 airgap/images/*.tar.gz
 airgap/images/*.tar.gz.sha256
+backend/data-local/
+backend/data-test/

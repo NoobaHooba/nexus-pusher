@@ -23,7 +23,11 @@ const Database = require('better-sqlite3');
 const fs       = require('fs');
 const path     = require('path');
 
-const DATA_DIR = process.env.DATA_DIR || '/app/data';
+const DEFAULT_DATA_DIR = process.env.NODE_ENV === 'production'
+  ? '/app/data'
+  : path.join(__dirname, '../../data');
+
+const DATA_DIR = process.env.DATA_DIR || DEFAULT_DATA_DIR;
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new Database(path.join(DATA_DIR, 'history.db'));
@@ -43,7 +47,12 @@ db.exec(`
     filename  TEXT    NOT NULL,
     size      INTEGER,
     status    TEXT    NOT NULL,
-    error     TEXT
+    error     TEXT,
+    path      TEXT,
+    version   TEXT,
+    package_name TEXT,
+    artifact_id  TEXT,
+    result_url   TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_uploads_ts       ON uploads(ts DESC);
   CREATE INDEX IF NOT EXISTS idx_uploads_username ON uploads(username);
@@ -51,9 +60,23 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_uploads_status   ON uploads(status);
 `);
 
+const existingColumns = new Set(
+  db.prepare(`PRAGMA table_info(uploads)`).all().map((column) => column.name)
+);
+
+for (const [name, ddl] of [
+  ['path', 'ALTER TABLE uploads ADD COLUMN path TEXT'],
+  ['version', 'ALTER TABLE uploads ADD COLUMN version TEXT'],
+  ['package_name', 'ALTER TABLE uploads ADD COLUMN package_name TEXT'],
+  ['artifact_id', 'ALTER TABLE uploads ADD COLUMN artifact_id TEXT'],
+  ['result_url', 'ALTER TABLE uploads ADD COLUMN result_url TEXT'],
+]) {
+  if (!existingColumns.has(name)) db.exec(ddl);
+}
+
 const insertStmt = db.prepare(`
-  INSERT INTO uploads (ts, username, nexus_url, repo, type, filename, size, status, error)
-  VALUES (@ts, @username, @nexus_url, @repo, @type, @filename, @size, @status, @error)
+  INSERT INTO uploads (ts, username, nexus_url, repo, type, filename, size, status, error, path, version, package_name, artifact_id, result_url)
+  VALUES (@ts, @username, @nexus_url, @repo, @type, @filename, @size, @status, @error, @path, @version, @package_name, @artifact_id, @result_url)
 `);
 
 /**
@@ -80,6 +103,11 @@ function record(p) {
       size:      p.size      ?? null,
       status:    p.status,
       error:     p.error     || null,
+      path:         p.path || null,
+      version:      p.version || null,
+      package_name: p.package_name || null,
+      artifact_id:  p.artifact_id || null,
+      result_url:   p.result_url || null,
     });
   } catch (err) {
     // Never crash the upload flow because of a logging failure

@@ -32,6 +32,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     username: '',
     password: '',
     defaultRepo: '',
+    dockerRegistry: '',
     backendUrl: getBackendBaseUrl(settings),
     ...settings,
   });
@@ -71,6 +72,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     { key: 'username',    label: 'Username',           placeholder: 'admin',               type: 'text' },
     { key: 'password',    label: 'Password',           placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', type: 'password' },
     { key: 'defaultRepo', label: 'Default Repository', placeholder: 'maven-releases',      type: 'text' },
+    { key: 'dockerRegistry', label: 'Docker Registry', placeholder: 'registry.example.com', type: 'text', hint: 'Used for Docker CLI guidance shown in the upload page.' },
   ];
 
   return (

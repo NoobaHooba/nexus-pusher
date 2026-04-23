@@ -33,7 +33,13 @@ async function upload({ file, nexusUrl, repo, username, password }) {
   });
 
   const nexusUiUrl = `${base}/#browse/browse:${repo}`;
-  return { url, nexusUiUrl, status: response.status };
+  return {
+    url,
+    downloadUrl: `${base}/repository/${repo}/${filename}`,
+    path: filename,
+    nexusUiUrl,
+    status: response.status,
+  };
 }
 
 module.exports = { upload };

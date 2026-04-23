@@ -63,7 +63,7 @@ export default function UploadSummary({ totalSize, estimatedTime, activeFormat }
 
       <div className="grid grid-cols-3 gap-8 bg-white dark:bg-dark-surface p-8 rounded-3xl border border-slate-50 dark:border-dark-border shadow-sm">
         <AnimatedStat
-          label="Queue Size"
+          label="Review + Queue"
           value={totalSize}
           formatter={formatSize}
         />

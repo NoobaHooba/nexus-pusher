@@ -1,5 +1,4 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import ExtraFieldsForm from './ExtraFieldsForm';
 
 const REPO_EXTENSIONS = {
   maven:  ['.jar', '.war', '.ear', '.pom', '.aar', '.zip'],
@@ -35,7 +34,7 @@ function validateFiles(files, repoType) {
   return { valid, warnings };
 }
 
-export default function UploadZone({ onFiles, repoType, extraFields, onExtraChange, stagedCount }) {
+export default function UploadZone({ onFiles, repoType, stagedCount, settings }) {
   const inputRef            = useRef();
   const [dragging, setDragging]   = useState(false);
   const [warnings, setWarnings]   = useState([]);
@@ -100,6 +99,10 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
   const hint = REPO_HINTS[repoType];
 
   if (repoType === 'docker') {
+    const registry = settings?.dockerRegistry?.trim()
+      || settings?.defaultRepo?.trim()
+      || '<nexus-registry-host>';
+
     return (
       <div className="flex flex-col gap-6">
         <div className="bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-3xl p-10 flex flex-col gap-5">
@@ -109,16 +112,16 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
           <div className="flex flex-col gap-2">
             <h4 className="text-2xl font-bold text-primary dark:text-dark-text">Docker Images Use the CLI</h4>
             <p className="text-on-surface-variant dark:text-dark-text-muted max-w-2xl">
-              In your closed network, Docker images are pushed directly to the `docker.io` repository with the Docker client, not uploaded through the browser.
+              Publish Docker images to your Nexus registry with the Docker CLI. The browser flow is reserved for file-based package formats.
             </p>
           </div>
-          <div className="rounded-2xl bg-slate-50 dark:bg-dark-surface-2 border border-slate-100 dark:border-dark-border px-5 py-4">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint mb-2">
-              Command
+          <div className="rounded-2xl bg-slate-50 dark:bg-dark-surface-2 border border-slate-100 dark:border-dark-border px-5 py-4 flex flex-col gap-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">
+              Nexus Docker Flow
             </p>
-            <code className="block text-sm font-mono text-primary dark:text-dark-text">
-              docker push &lt;image&gt;:&lt;tag&gt;
-            </code>
+            <code className="block text-sm font-mono text-primary dark:text-dark-text">docker login {registry}</code>
+            <code className="block text-sm font-mono text-primary dark:text-dark-text">docker tag my-image:1.0.0 {registry}/my-image:1.0.0</code>
+            <code className="block text-sm font-mono text-primary dark:text-dark-text">docker push {registry}/my-image:1.0.0</code>
           </div>
         </div>
       </div>
@@ -199,7 +202,7 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
           <div className="mb-6 flex items-center gap-2 px-4 py-2 bg-accent-dim/30 dark:bg-dark-accent-dim/40 rounded-full">
             <span className="material-symbols-outlined text-accent dark:text-dark-accent text-[16px]">inventory_2</span>
             <span className="text-xs font-bold text-accent dark:text-dark-accent">
-              {stagedCount} file{stagedCount !== 1 ? 's' : ''} staged — see bar below to push
+              {stagedCount} file{stagedCount !== 1 ? 's' : ''} in review — confirm details below, then upload
             </span>
           </div>
         )}
@@ -215,7 +218,6 @@ export default function UploadZone({ onFiles, repoType, extraFields, onExtraChan
 
         <input ref={inputRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
       </div>
-      <ExtraFieldsForm repoType={repoType} values={extraFields} onChange={onExtraChange} />
     </div>
   );
 }

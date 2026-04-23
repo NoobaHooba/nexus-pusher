@@ -1,6 +1,6 @@
 import React from 'react';
 
-const FIELD_MAP = {
+export const FIELD_MAP = {
   maven: [
     { key: 'groupId',    label: 'Group ID',    placeholder: 'com.example' },
     { key: 'artifactId', label: 'Artifact ID', placeholder: 'my-artifact' },
@@ -16,15 +16,24 @@ const FIELD_MAP = {
   ],
 };
 
-export default function ExtraFieldsForm({ repoType, values, onChange }) {
-  const fields = FIELD_MAP[repoType];
+export default function ExtraFieldsForm({
+  repoType,
+  values,
+  onChange,
+  fieldsOverride,
+  title,
+  compact = false,
+}) {
+  const fields = fieldsOverride || FIELD_MAP[repoType];
   if (!fields) return null;
 
   const handle = (key, val) => onChange({ ...values, [key]: val });
 
   return (
-    <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border p-6 flex flex-col gap-4">
-      <h5 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint">{repoType.toUpperCase()} Options</h5>
+    <div className={`bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border ${compact ? 'p-4' : 'p-6'} flex flex-col gap-4`}>
+      <h5 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint">
+        {title || `${repoType.toUpperCase()} Options`}
+      </h5>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {fields.map(({ key, label, placeholder }) => (
           <div key={key} className="flex flex-col gap-1.5">

@@ -45,8 +45,14 @@ async function upload({ file, nexusUrl, repo, username, password, extra }) {
   const groupPath = groupId.trim().replace(/\./g, '/');
   const classifierSuffix = normalizedClassifier ? `-${normalizedClassifier}` : '';
   const uploadPath = `${groupPath}/${artifactId.trim()}/${version.trim()}/${artifactId.trim()}-${version.trim()}${classifierSuffix}.${ext}`;
-  const nexusUiUrl = `${nexusUrl}/#browse/browse:${repo}:${encodeURIComponent(uploadPath)}`;
-  return { url, nexusUiUrl, status: response.status };
+  const nexusUiUrl = `${base}/#browse/browse:${repo}:${encodeURIComponent(uploadPath)}`;
+  return {
+    url,
+    path: uploadPath,
+    downloadUrl: `${base}/repository/${repo}/${uploadPath}`,
+    nexusUiUrl,
+    status: response.status,
+  };
 }
 
 module.exports = { upload };

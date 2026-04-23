@@ -1,15 +1,17 @@
 const fs = require('fs');
-const path = require('path');
 const { nexusRequest } = require('../lib/nexusRequest');
+const { detectArtifact } = require('../lib/artifactMetadata');
 
 async function upload({ file, nexusUrl, repo, username, password }) {
   const tarball = fs.readFileSync(file.path);
   const b64 = tarball.toString('base64');
 
-  const base = path.basename(file.originalname, '.tgz');
-  const lastDash = base.lastIndexOf('-');
-  const name    = lastDash > 0 ? base.substring(0, lastDash) : base;
-  const version = lastDash > 0 ? base.substring(lastDash + 1) : '1.0.0';
+  const detected = await detectArtifact('npm', file, {});
+  const name = detected.detected.coordinates.packageName || detected.detected.name || file.originalname.replace(/\.tgz$/i, '');
+  const version = detected.detected.coordinates.version || detected.detected.version || '1.0.0';
+  const encodedName = encodeURIComponent(name);
+  const tarballName = `${name.replace(/^@/, '').replace(/\//g, '-')}-${version}.tgz`;
+  const baseUrl = `${nexusUrl.replace(/\/$/, '')}/repository/${repo}`;
 
   const body = {
     _id: name,
@@ -18,11 +20,11 @@ async function upload({ file, nexusUrl, repo, username, password }) {
       [version]: {
         name,
         version,
-        dist: { tarball: `${nexusUrl}/repository/${repo}/${name}/-/${name}-${version}.tgz` },
+        dist: { tarball: `${baseUrl}/${name}/-/${tarballName}` },
       },
     },
     _attachments: {
-      [`${name}-${version}.tgz`]: {
+      [tarballName]: {
         content_type: 'application/octet-stream',
         data: b64,
         length: tarball.length,
@@ -30,7 +32,7 @@ async function upload({ file, nexusUrl, repo, username, password }) {
     },
   };
 
-  const url = `${nexusUrl}/repository/${repo}/${name}`;
+  const url = `${baseUrl}/${encodedName}`;
   const response = await nexusRequest({
     method: 'PUT',
     url,
@@ -39,8 +41,14 @@ async function upload({ file, nexusUrl, repo, username, password }) {
     auth: username ? { username, password } : undefined,
   });
 
-  const nexusUiUrl = `${nexusUrl}/#browse/browse:${repo}:${encodeURIComponent(name)}`;
-  return { url, nexusUiUrl, status: response.status };
+  const nexusUiUrl = `${nexusUrl.replace(/\/$/, '')}/#browse/browse:${repo}:${encodeURIComponent(name)}`;
+  return {
+    url,
+    downloadUrl: `${baseUrl}/${name}/-/${tarballName}`,
+    path: `${name}/-/${tarballName}`,
+    nexusUiUrl,
+    status: response.status,
+  };
 }
 
 module.exports = { upload };

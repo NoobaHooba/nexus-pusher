@@ -63,7 +63,7 @@ function formatDate(ts) {
 }
 
 function exportCsv(rows) {
-  const header = ['Timestamp', 'User', 'File', 'Size', 'Format', 'Repository', 'Status', 'Error', 'Nexus URL'];
+  const header = ['Timestamp', 'User', 'File', 'Size', 'Format', 'Repository', 'Version', 'Path', 'Status', 'Error', 'Nexus URL'];
   const lines = rows.map(r => [
     formatDate(r.ts || r.timestamp),
     r.username || '',
@@ -71,6 +71,8 @@ function exportCsv(rows) {
     formatSize(r.size),
     r.type || r.repoType || '',
     r.repo || r.repoName || '',
+    r.version || '',
+    r.path || '',
     r.status,
     r.error || '',
     r.nexus_url || r.nexusUiUrl || '',
@@ -343,6 +345,11 @@ export default function HistoryPage({ settings }) {
                           </a>
                         )}
                       </div>
+                      {(row.path || row.version) && (
+                        <p className="mt-1 text-[10px] font-mono text-slate-400 dark:text-dark-text-faint truncate max-w-[260px]" title={row.path || row.version}>
+                          {row.path || `v${row.version}`}
+                        </p>
+                      )}
                     </td>
                     <td className="px-5 py-3 text-on-surface-variant dark:text-dark-text-muted tabular-nums">{formatSize(row.size)}</td>
                     <td className="px-5 py-3">

@@ -196,10 +196,17 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
                     {formatSize(item.size)}{item.speed ? ` • ${item.speed}` : ''}{item.statusText ? ` • ${item.statusText}` : ''}
                   </p>
                   {isDone && item.nexusUiUrl && (
-                    <a href={item.nexusUiUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold text-accent dark:text-dark-accent hover:underline">
-                      <span className="material-symbols-outlined text-[12px]">open_in_new</span>
-                      View in Nexus
-                    </a>
+                    <div className="mt-1.5 flex flex-col gap-1">
+                      <a href={item.nexusUiUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] font-bold text-accent dark:text-dark-accent hover:underline">
+                        <span className="material-symbols-outlined text-[12px]">open_in_new</span>
+                        Open in Nexus
+                      </a>
+                      {item.path && (
+                        <p className="text-[10px] font-mono text-slate-400 dark:text-dark-text-faint break-all">
+                          {item.path}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
 

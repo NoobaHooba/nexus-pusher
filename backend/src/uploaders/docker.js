@@ -10,12 +10,10 @@ const path = require('path');
  * passed as an array and never interpolated into a shell string.
  */
 async function upload({ file, nexusUrl, repo, username, password, extra }) {
-  const registry = (extra.registry || 'docker.io').trim();
+  const registry = (extra.registry || repo || '').trim();
   const imageName = extra.imageName || path.basename(file.originalname, '.tar');
   const imageTag  = extra.imageTag  || 'latest';
-  const fullTag   = registry === 'docker.io'
-    ? `${imageName}:${imageTag}`
-    : `${registry}/${imageName}:${imageTag}`;
+  const fullTag   = registry ? `${registry}/${imageName}:${imageTag}` : `${imageName}:${imageTag}`;
 
   const opts = { timeout: 10 * 60 * 1000, stdio: 'pipe' }; // 10-minute timeout
 

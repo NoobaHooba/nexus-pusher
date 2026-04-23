@@ -1,15 +1,18 @@
-import { useState, useCallback, useRef } from 'react';
-import { UPLOADERS, checkDuplicate } from '../lib/nexusApi';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { UPLOADERS, runPreflight } from '../lib/nexusApi';
 
 const HISTORY_KEY = 'nexus-pusher-history';
+const PREFS_KEY = 'nexus-pusher-user-prefs';
 const MAX_HISTORY = 500;
+const MAX_RECENT_ACTIVITY = 5;
+const MAX_AUTO_RETRIES = 2;
+const BASE_RETRY_DELAY = 2000;
 
-// ── Retry configuration ───────────────────────────────────────────────────────
-// Max 3 automatic attempts (1 initial + 2 retries) with exponential back-off.
-// Delay sequence: 2 s → 4 s → (give up).
-// Only transient errors are retried — 4xx responses are permanent failures.
-const MAX_AUTO_RETRIES  = 2;           // retries after the first attempt
-const BASE_RETRY_DELAY  = 2000;        // ms — doubles each attempt
+const OPTIONAL_FIELDS = {
+  maven: ['classifier', 'extension'],
+  yum: ['directory'],
+  raw: ['directory'],
+};
 
 function isTransientError(message) {
   if (!message) return false;
@@ -22,80 +25,293 @@ function isTransientError(message) {
     m.includes('etimedout') ||
     m.includes('fetch') ||
     m.includes('backend') ||
-    // HTTP 5xx
     /http 5\d\d/.test(m)
   );
+}
+
+function loadJson(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null') || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (_) {
+    // ignore storage pressure
+  }
+}
+
+function getDefaultPrefs() {
+  return {
+    favoritesByFormat: {},
+    recentReposByFormat: {},
+    lastExtraFieldsByFormat: {},
+    recentActivity: [],
+    lastDockerRegistry: '',
+  };
+}
+
+function buildReviewStatus(item) {
+  if (item.inspecting) return 'inspecting';
+  if (!item.selectedRepo) return 'needs-input';
+  if ((item.missingFields || []).length > 0) return 'needs-input';
+  return item.duplicateCheck?.exists ? 'warning' : 'ready';
+}
+
+function buildEditableFields(repoType, missingFields = []) {
+  const keys = new Set([...(missingFields || []), ...(OPTIONAL_FIELDS[repoType] || [])]);
+  return [...keys];
+}
+
+function mergeRecent(list, value) {
+  return [value, ...list.filter((item) => item !== value)].slice(0, 5);
+}
+
+function extractSummary(item) {
+  return {
+    id: item.id,
+    name: item.name,
+    size: item.size,
+    repoType: item.repoType,
+    repoName: item.repoName,
+    status: item.status,
+    statusText: item.statusText,
+    nexusUiUrl: item.nexusUiUrl || null,
+    directUrl: item.directUrl || null,
+    path: item.path || '',
+    coordinates: item.coordinates || {},
+    timestamp: Date.now(),
+  };
+}
+
+function saveToHistory(item) {
+  const existing = loadJson(HISTORY_KEY, []);
+  saveJson(HISTORY_KEY, [extractSummary(item), ...existing].slice(0, MAX_HISTORY));
 }
 
 let idCounter = 0;
 const genId = () => ++idCounter;
 
-function saveToHistory(item) {
-  try {
-    const existing = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-    const entry = {
-      id:         item.id,
-      name:       item.name,
-      size:       item.size,
-      repoType:   item.repoType,
-      repoName:   item.repoName,
-      status:     item.status,
-      statusText: item.statusText,
-      nexusUiUrl: item.nexusUiUrl || null,
-      directUrl:  item.directUrl  || null,
-      timestamp:  Date.now(),
-    };
-    const updated = [entry, ...existing].slice(0, MAX_HISTORY);
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
-  } catch (_) { /* storage full — silently skip */ }
-}
-
-export function useUpload(settings, repoType, repoName, extraFields, toast) {
+export function useUpload(settings, repoType, repoName, toast) {
   const [staged, setStaged] = useState([]);
-  const [queue,  setQueue]  = useState([]);
-  const processingRef       = useRef(false);
-  const toastRef            = useRef(toast);
+  const [queue, setQueue] = useState([]);
+  const [prefs, setPrefs] = useState(() => loadJson(PREFS_KEY, getDefaultPrefs()));
+  const processingRef = useRef(false);
+  const toastRef = useRef(toast);
+  const previousRepoType = useRef(repoType);
   toastRef.current = toast;
 
-  const stagedSize    = staged.reduce((a, i) => a + (i.size || 0), 0);
-  const totalSize     = queue.reduce((a, i) => a + (i.size || 0), 0);
-  const pendingSize   = queue
-    .filter(i => i.status === 'pending')
-    .reduce((a, i) => a + (i.size || 0), 0);
+  useEffect(() => {
+    saveJson(PREFS_KEY, prefs);
+  }, [prefs]);
+
+  useEffect(() => {
+    if (previousRepoType.current !== repoType) {
+      previousRepoType.current = repoType;
+      setStaged([]);
+    }
+  }, [repoType]);
+
+  const stagedSize = staged.reduce((acc, item) => acc + (item.size || 0), 0);
+  const totalSize = queue.reduce((acc, item) => acc + (item.size || 0), 0);
+  const pendingSize = queue
+    .filter((item) => item.status === 'pending' || item.status === 'uploading')
+    .reduce((acc, item) => acc + (item.size || 0), 0);
   const estimatedTime = pendingSize > 0 ? pendingSize / (5 * 1024 * 1024) : 0;
 
-  const updateItem = useCallback((id, patch) =>
-    setQueue(q => q.map(i => (i.id === id ? { ...i, ...patch } : i))),
-  []);
+  const persistSuccessfulContext = useCallback((item) => {
+    setPrefs((current) => {
+      const next = { ...current };
+      next.recentReposByFormat = {
+        ...next.recentReposByFormat,
+        [item.repoType]: mergeRecent(next.recentReposByFormat[item.repoType] || [], item.repoName),
+      };
+      next.lastExtraFieldsByFormat = {
+        ...next.lastExtraFieldsByFormat,
+        [item.repoType]: { ...(item.extraFields || {}) },
+      };
+      next.recentActivity = [
+        {
+          id: `${item.repoType}-${item.repoName}-${item.name}-${Date.now()}`,
+          repoType: item.repoType,
+          repoName: item.repoName,
+          fileName: item.name,
+          path: item.path || '',
+          coordinates: item.coordinates || {},
+          extraFields: { ...(item.extraFields || {}) },
+          timestamp: Date.now(),
+          nexusUiUrl: item.nexusUiUrl || null,
+        },
+        ...(current.recentActivity || []).filter((entry) => !(entry.repoType === item.repoType && entry.repoName === item.repoName && entry.fileName === item.name)),
+      ].slice(0, MAX_RECENT_ACTIVITY);
+      if (item.repoType === 'docker' && item.repoName) {
+        next.lastDockerRegistry = item.repoName;
+      }
+      return next;
+    });
+  }, []);
+
+  const inspectStagedItem = useCallback(async (item, overrides = {}) => {
+    const selectedRepo = overrides.selectedRepo ?? item.selectedRepo ?? repoName ?? '';
+    const extraFields = { ...(item.extraFields || {}), ...(overrides.extraFields || {}) };
+
+    setStaged((current) => current.map((entry) => (
+      entry.id === item.id
+        ? { ...entry, inspecting: true, inspectError: '', selectedRepo, extraFields }
+        : entry
+    )));
+
+    try {
+      const response = await runPreflight({
+        type: repoType,
+        nexusUrl: settings?.nexusUrl,
+        repo: selectedRepo,
+        username: settings?.username,
+        password: settings?.password,
+        file: item.file,
+        extra: extraFields,
+        settings,
+        preferences: prefs,
+        defaultRepo: repoName || settings?.defaultRepo || '',
+      });
+
+      setStaged((current) => current.map((entry) => {
+        if (entry.id !== item.id) return entry;
+        const next = {
+          ...entry,
+          inspecting: false,
+          inspectError: '',
+          detected: response.detected || {},
+          warnings: response.warnings || [],
+          missingFields: response.missingFields || [],
+          availableRepos: response.availableRepos || [],
+          repoSuggestions: response.repoSuggestions || [],
+          duplicateCheck: response.duplicateCheck || { exists: false, matches: [] },
+          selectedRepo: response.selectedRepo || selectedRepo || '',
+          extraFields,
+        };
+        return { ...next, reviewStatus: buildReviewStatus(next) };
+      }));
+    } catch (err) {
+      setStaged((current) => current.map((entry) => {
+        if (entry.id !== item.id) return entry;
+        const next = {
+          ...entry,
+          inspecting: false,
+          inspectError: err.message || 'Preflight failed',
+          warnings: err.message ? [err.message] : [],
+          selectedRepo,
+          extraFields,
+        };
+        return { ...next, reviewStatus: buildReviewStatus(next) };
+      }));
+    }
+  }, [prefs, repoName, repoType, settings]);
+
+  const stageFiles = useCallback((files) => {
+    const defaults = prefs.lastExtraFieldsByFormat[repoType] || {};
+    const newItems = files.map((file) => ({
+      id: genId(),
+      file,
+      name: file.name,
+      size: file.size,
+      repoType,
+      selectedRepo: repoName || settings?.defaultRepo || '',
+      extraFields: { ...defaults },
+      missingFields: [],
+      warnings: [],
+      repoSuggestions: [],
+      availableRepos: [],
+      duplicateCheck: { exists: false, matches: [] },
+      inspecting: true,
+      inspectError: '',
+      reviewStatus: 'inspecting',
+    }));
+
+    setStaged((current) => [...current, ...newItems]);
+    newItems.forEach((item) => { inspectStagedItem(item); });
+  }, [inspectStagedItem, prefs.lastExtraFieldsByFormat, repoName, repoType, settings?.defaultRepo]);
+
+  const removeStaged = useCallback((id) => {
+    setStaged((current) => current.filter((item) => item.id !== id));
+  }, []);
+
+  const cancelStaged = useCallback(() => {
+    setStaged([]);
+  }, []);
+
+  const updateStagedRepo = useCallback((id, selectedRepo) => {
+    const item = staged.find((entry) => entry.id === id);
+    if (!item) return;
+    inspectStagedItem({ ...item, selectedRepo }, { selectedRepo });
+  }, [inspectStagedItem, staged]);
+
+  const updateStagedExtraFields = useCallback((id, nextExtraFields) => {
+    const item = staged.find((entry) => entry.id === id);
+    if (!item) return;
+    inspectStagedItem({ ...item, extraFields: nextExtraFields }, { extraFields: nextExtraFields });
+  }, [inspectStagedItem, staged]);
+
+  useEffect(() => {
+    if (!repoName || staged.length === 0) return;
+    staged.forEach((item) => {
+      if (item.inspecting || item.selectedRepo === repoName) return;
+      inspectStagedItem({ ...item, selectedRepo: repoName }, { selectedRepo: repoName });
+    });
+  }, [inspectStagedItem, repoName]); // intentionally not depending on staged to avoid loops
+
+  const applyRepoToAll = useCallback((selectedRepo) => {
+    staged.forEach((item) => {
+      if (item.selectedRepo === selectedRepo) return;
+      inspectStagedItem({ ...item, selectedRepo }, { selectedRepo });
+    });
+  }, [inspectStagedItem, staged]);
+
+  const toggleFavoriteRepo = useCallback((format, selectedRepo) => {
+    if (!selectedRepo) return;
+    setPrefs((current) => {
+      const currentList = current.favoritesByFormat[format] || [];
+      const exists = currentList.includes(selectedRepo);
+      return {
+        ...current,
+        favoritesByFormat: {
+          ...current.favoritesByFormat,
+          [format]: exists
+            ? currentList.filter((name) => name !== selectedRepo)
+            : [...currentList, selectedRepo].sort(),
+        },
+      };
+    });
+  }, []);
+
+  const reuseRecentActivity = useCallback((activity) => {
+    if (!activity) return;
+    setPrefs((current) => ({
+      ...current,
+      lastExtraFieldsByFormat: {
+        ...current.lastExtraFieldsByFormat,
+        [activity.repoType]: { ...(activity.extraFields || {}) },
+      },
+    }));
+  }, []);
+
+  const updateQueueItem = useCallback((id, patch) => {
+    setQueue((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }, []);
 
   const processNext = useCallback(() => {
     if (processingRef.current) return;
     processingRef.current = true;
 
-    setQueue(currentQueue => {
-      const item = currentQueue.find(i => i.status === 'pending');
-
+    setQueue((currentQueue) => {
+      const item = currentQueue.find((entry) => entry.status === 'pending');
       if (!item) {
         processingRef.current = false;
         return currentQueue;
-      }
-
-      if (!item.settings.nexusUrl) {
-        processingRef.current = false;
-        const patch = { status: 'error', statusText: 'Nexus URL not set — open Settings' };
-        saveToHistory({ ...item, ...patch });
-        toastRef.current?.error('Nexus URL not configured', { title: item.name });
-        setTimeout(processNext, 0);
-        return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
-      }
-
-      if (!item.repoName) {
-        processingRef.current = false;
-        const patch = { status: 'error', statusText: 'Repository name not set' };
-        saveToHistory({ ...item, ...patch });
-        toastRef.current?.error('Repository name not set', { title: item.name });
-        setTimeout(processNext, 0);
-        return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
       }
 
       const uploader = UPLOADERS[item.repoType];
@@ -103,215 +319,164 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
         processingRef.current = false;
         const patch = { status: 'error', statusText: `Unknown repo type: ${item.repoType}` };
         saveToHistory({ ...item, ...patch });
-        toastRef.current?.error(`Unknown repo type: ${item.repoType}`, { title: item.name });
-        setTimeout(processNext, 0);
-        return currentQueue.map(i => i.id === item.id ? { ...i, ...patch } : i);
+        return currentQueue.map((entry) => (entry.id === item.id ? { ...entry, ...patch } : entry));
       }
 
-      // Mark as uploading immediately (optimistic UI)
       setTimeout(async () => {
-        // ── Feature 9: Pre-upload duplicate detection ─────────────────────────
-        // Only run the check if the item isn't already a confirmed overwrite
-        // (i.e. user hasn't explicitly said "push anyway" via retryItem).
-        // Skip the check for docker — it has no search-friendly artifact name.
-        if (!item.skipDuplicateCheck && item.repoType !== 'docker') {
-          try {
-            const dupResult = await checkDuplicate({
-              nexusUrl: item.settings.nexusUrl,
-              username: item.settings.username,
-              password: item.settings.password,
-              repo:     item.repoName,
-              name:     item.name,
-              settings: item.settings,
-            });
-
-            if (dupResult.exists) {
-              // Pause and surface a warning — don't auto-push over an existing artifact.
-              // The user can hit "Push Anyway" (retryItem with skipDuplicateCheck=true)
-              // or remove the item from the queue.
-              const existing  = dupResult.components[0];
-              const statusText = existing?.version
-                ? `Already exists in ${item.repoName} (v${existing.version}) — push anyway to overwrite`
-                : `Already exists in ${item.repoName} — push anyway to overwrite`;
-              const patch = { status: 'warning', statusText, dupComponents: dupResult.components };
-              updateItem(item.id, patch);
-              toastRef.current?.warning(`Duplicate detected: ${item.name}`, {
-                title: 'Already in Nexus',
-                duration: 8000,
-              });
-              processingRef.current = false;
-              processNext(); // continue with remaining queue items
-              return;
-            }
-          } catch (_) {
-            // Duplicate check failure is non-fatal — proceed with the upload
-          }
-        }
-
-        // ── Feature 8: Upload with exponential-backoff auto-retry ─────────────
         const maxAttempts = MAX_AUTO_RETRIES + 1;
-        let   attempt     = item.retryCount || 0; // how many auto-retries already done
-        let   lastError   = null;
+        let attempt = item.retryCount || 0;
+        let lastError = null;
 
         while (attempt < maxAttempts) {
           if (attempt > 0) {
-            // Exponential back-off delay before each retry attempt
             const delayMs = BASE_RETRY_DELAY * Math.pow(2, attempt - 1);
-            updateItem(item.id, {
-              status:     'pending',
+            updateQueueItem(item.id, {
+              status: 'pending',
               statusText: `Retrying in ${delayMs / 1000}s… (attempt ${attempt + 1}/${maxAttempts})`,
               retryCount: attempt,
             });
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-            // Re-mark as uploading after the delay
-            updateItem(item.id, {
-              status:     'uploading',
-              progress:   0,
-              statusText: `Attempt ${attempt + 1} of ${maxAttempts}`,
-              retryCount: attempt,
-            });
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
           }
+
+          updateQueueItem(item.id, {
+            status: 'uploading',
+            progress: 0,
+            statusText: `Attempt ${attempt + 1} of ${maxAttempts}`,
+            retryCount: attempt,
+          });
 
           try {
             const result = await uploader({
-              nexusUrl:   item.settings.nexusUrl,
-              repo:       item.repoName,
-              username:   item.settings.username,
-              password:   item.settings.password,
-              file:       item.file,
-              extra:      item.extraFields,
-              settings:   item.settings,
-              onProgress: (pct) => updateItem(item.id, { progress: pct }),
+              nexusUrl: item.settings.nexusUrl,
+              repo: item.repoName,
+              username: item.settings.username,
+              password: item.settings.password,
+              file: item.file,
+              extra: item.extraFields,
+              settings: item.settings,
+              onProgress: (pct) => updateQueueItem(item.id, { progress: pct }),
             });
 
-            const nexusUiUrl = result?.nexusUiUrl || null;
-            const directUrl  = result?.url         || null;
             const patch = {
-              status: 'done', progress: 100, statusText: 'Successful',
-              nexusUiUrl, directUrl,
-              retryCount: attempt,  // record final attempt count for history
+              status: 'done',
+              progress: 100,
+              statusText: result?.path || 'Successful',
+              retryCount: attempt,
+              nexusUiUrl: result?.nexusUiUrl || null,
+              directUrl: result?.downloadUrl || result?.url || null,
+              path: result?.path || '',
+              coordinates: result?.coordinates || item.coordinates || {},
             };
-            updateItem(item.id, patch);
+            updateQueueItem(item.id, patch);
             saveToHistory({ ...item, ...patch });
+            persistSuccessfulContext({ ...item, ...patch });
 
-            const retriedLabel = attempt > 0 ? ` (succeeded on attempt ${attempt + 1})` : '';
-            toastRef.current?.success(`Pushed to ${item.repoName}${retriedLabel}`, {
+            toastRef.current?.success(`Pushed to ${item.repoName}${attempt > 0 ? ` on attempt ${attempt + 1}` : ''}`, {
               title: item.name,
-              ...(nexusUiUrl ? { action: { label: 'View in Nexus', onClick: () => window.open(nexusUiUrl, '_blank') } } : {}),
+              ...(patch.nexusUiUrl
+                ? { action: { label: 'Open in Nexus', onClick: () => window.open(patch.nexusUiUrl, '_blank') } }
+                : {}),
             });
 
             lastError = null;
-            break; // success — exit the retry loop
-
+            break;
           } catch (err) {
             lastError = err;
-
-            // If the error is permanent (e.g. 400 Bad Request, 401, 409 Conflict)
-            // don't waste retries — bail immediately.
             if (!isTransientError(err.message)) break;
-
             attempt++;
           }
         }
 
-        // If we exited the loop with an error, mark as failed
         if (lastError) {
           const exhausted = attempt >= maxAttempts && isTransientError(lastError.message);
-          const statusText = exhausted
-            ? `Failed after ${maxAttempts} attempt${maxAttempts !== 1 ? 's' : ''}: ${lastError.message}`
-            : lastError.message;
-          const patch = { status: 'error', statusText, retryCount: attempt };
-          updateItem(item.id, patch);
+          const patch = {
+            status: 'error',
+            statusText: exhausted
+              ? `Failed after ${maxAttempts} attempts: ${lastError.message}`
+              : lastError.message,
+            retryCount: attempt,
+          };
+          updateQueueItem(item.id, patch);
           saveToHistory({ ...item, ...patch });
-          toastRef.current?.error(statusText, { title: item.name, duration: 7000 });
+          toastRef.current?.error(patch.statusText, { title: item.name, duration: 7000 });
         }
 
         processingRef.current = false;
         processNext();
       }, 0);
 
-      return currentQueue.map(i =>
-        i.id === item.id ? { ...i, status: 'uploading', progress: 0, retryCount: i.retryCount || 0 } : i
-      );
+      return currentQueue.map((entry) => (
+        entry.id === item.id
+          ? { ...entry, status: 'uploading', progress: 0, retryCount: entry.retryCount || 0 }
+          : entry
+      ));
     });
-  }, [updateItem]);
-
-  const stageFiles = useCallback((files) => {
-    const newItems = files.map(f => ({
-      id:   genId(),
-      file: f,
-      name: f.name,
-      size: f.size,
-    }));
-    setStaged(s => [...s, ...newItems]);
-  }, []);
-
-  const removeStaged = useCallback((id) => {
-    setStaged(s => s.filter(i => i.id !== id));
-  }, []);
-
-  const cancelStaged = useCallback(() => {
-    setStaged([]);
-  }, []);
+  }, [persistSuccessfulContext, updateQueueItem]);
 
   const pushStaged = useCallback(() => {
-    setStaged(currentStaged => {
-      if (currentStaged.length === 0) return currentStaged;
-      const newItems = currentStaged.map(s => ({
-        ...s,
-        status:             'pending',
-        progress:           0,
-        statusText:         'Waiting',
-        retryCount:         0,
-        skipDuplicateCheck: false,
-        repoType,
-        repoName,
-        settings:    { ...settings },
-        extraFields: { ...extraFields },
+    setStaged((current) => {
+      const readyItems = current.filter((item) => ['ready', 'warning'].includes(item.reviewStatus));
+      const blockedItems = current.filter((item) => !['ready', 'warning'].includes(item.reviewStatus));
+
+      if (readyItems.length === 0) {
+        toastRef.current?.warning('No reviewed files are ready for upload');
+        return current;
+      }
+
+      const newQueueItems = readyItems.map((item) => ({
+        ...item,
+        status: 'pending',
+        progress: 0,
+        statusText: item.duplicateCheck?.exists ? 'Uploading with existing match in Nexus' : 'Waiting',
+        retryCount: 0,
+        repoName: item.selectedRepo,
+        settings: { ...settings },
+        coordinates: item.detected?.coordinates || {},
+        path: item.detected?.path || '',
       }));
-      setQueue(q => [...q, ...newItems]);
+
+      setQueue((existing) => [...existing, ...newQueueItems]);
       setTimeout(processNext, 0);
-      toastRef.current?.info(`Queued ${currentStaged.length} file${currentStaged.length !== 1 ? 's' : ''} for upload`);
-      return [];
+      toastRef.current?.info(`Queued ${readyItems.length} reviewed file${readyItems.length !== 1 ? 's' : ''} for upload`);
+      return blockedItems;
     });
-  }, [processNext, repoType, repoName, settings, extraFields]);
+  }, [processNext, settings]);
 
   const clearCompleted = useCallback(() => {
-    setQueue(q => q.filter(i => i.status !== 'done'));
+    setQueue((current) => current.filter((item) => item.status !== 'done'));
   }, []);
 
-  // Manual retry — always skips the duplicate check so "Push Anyway" works
-  const retryItem = useCallback((id, { skipDuplicateCheck = true } = {}) => {
-    setQueue(q => q.map(i =>
-      i.id === id
-        ? { ...i, status: 'pending', statusText: 'Waiting', progress: 0, retryCount: 0, skipDuplicateCheck }
-        : i
-    ));
+  const retryItem = useCallback((id) => {
+    setQueue((current) => current.map((item) => (
+      item.id === id
+        ? { ...item, status: 'pending', statusText: 'Waiting', progress: 0, retryCount: 0 }
+        : item
+    )));
     setTimeout(processNext, 0);
   }, [processNext]);
 
   const retryAllFailed = useCallback(() => {
-    setQueue(q => {
-      const failedCount = q.filter(i => i.status === 'error').length;
-      if (failedCount === 0) return q;
+    setQueue((current) => {
+      const failedCount = current.filter((item) => item.status === 'error').length;
+      if (failedCount === 0) return current;
       toastRef.current?.info(`Retrying ${failedCount} failed file${failedCount !== 1 ? 's' : ''}…`);
-      return q.map(i =>
-        i.status === 'error'
-          ? { ...i, status: 'pending', statusText: 'Waiting', progress: 0, retryCount: 0, skipDuplicateCheck: true }
-          : i
-      );
+      return current.map((item) => (
+        item.status === 'error'
+          ? { ...item, status: 'pending', statusText: 'Waiting', progress: 0, retryCount: 0 }
+          : item
+      ));
     });
     setTimeout(processNext, 0);
   }, [processNext]);
 
   const reorderQueue = useCallback((fromId, toId) => {
-    setQueue(q => {
-      if (fromId === toId) return q;
-      const fromIdx = q.findIndex(i => i.id === fromId);
-      const toIdx   = q.findIndex(i => i.id === toId);
-      if (fromIdx === -1 || toIdx === -1) return q;
-      if (q[fromIdx].status !== 'pending' || q[toIdx].status !== 'pending') return q;
-      const next = [...q];
+    setQueue((current) => {
+      if (fromId === toId) return current;
+      const fromIdx = current.findIndex((item) => item.id === fromId);
+      const toIdx = current.findIndex((item) => item.id === toId);
+      if (fromIdx === -1 || toIdx === -1) return current;
+      if (current[fromIdx].status !== 'pending' || current[toIdx].status !== 'pending') return current;
+      const next = [...current];
       const [moved] = next.splice(fromIdx, 1);
       next.splice(toIdx, 0, moved);
       return next;
@@ -319,7 +484,26 @@ export function useUpload(settings, repoType, repoName, extraFields, toast) {
   }, []);
 
   return {
-    staged, stagedSize, stageFiles, removeStaged, cancelStaged, pushStaged,
-    queue, totalSize, estimatedTime, clearCompleted, retryItem, retryAllFailed, reorderQueue,
+    staged,
+    stagedSize,
+    stageFiles,
+    removeStaged,
+    cancelStaged,
+    pushStaged,
+    updateStagedRepo,
+    updateStagedExtraFields,
+    applyRepoToAll,
+    queue,
+    totalSize,
+    estimatedTime,
+    clearCompleted,
+    retryItem,
+    retryAllFailed,
+    reorderQueue,
+    preferences: prefs,
+    toggleFavoriteRepo,
+    recentActivity: prefs.recentActivity || [],
+    reuseRecentActivity,
+    buildEditableFields,
   };
 }

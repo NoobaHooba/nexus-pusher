@@ -9,7 +9,8 @@ async function upload({ file, nexusUrl, repo, username, password }) {
     contentType: 'application/octet-stream',
   });
 
-  const url = `${nexusUrl}/repository/${repo}/`;
+  const base = nexusUrl.replace(/\/$/, '');
+  const url = `${base}/repository/${repo}/`;
   const response = await nexusRequest({
     method: 'PUT',
     url,
@@ -18,8 +19,14 @@ async function upload({ file, nexusUrl, repo, username, password }) {
     auth: username ? { username, password } : undefined,
   });
 
-  const nexusUiUrl = `${nexusUrl}/#browse/browse:${repo}`;
-  return { url, nexusUiUrl, status: response.status };
+  const nexusUiUrl = `${base}/#browse/browse:${repo}`;
+  return {
+    url,
+    downloadUrl: `${base}/repository/${repo}/${file.originalname}`,
+    path: file.originalname,
+    nexusUiUrl,
+    status: response.status,
+  };
 }
 
 module.exports = { upload };

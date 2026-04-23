@@ -3,6 +3,7 @@ const multer  = require('multer');
 const fs      = require('fs');
 const router  = express.Router();
 const { record } = require('../lib/db');
+const { buildArtifactPath, detectArtifact } = require('../lib/artifactMetadata');
 
 const mavenUploader  = require('../uploaders/maven');
 const npmUploader    = require('../uploaders/npm');
@@ -39,6 +40,20 @@ const uploaderMap = {
   raw:    rawUploader,
 };
 
+function buildResultCoordinates(type, detected, extra) {
+  const base = detected?.coordinates || {};
+  if (type === 'maven') {
+    return {
+      groupId: base.groupId || extra.groupId || '',
+      artifactId: base.artifactId || extra.artifactId || '',
+      version: base.version || extra.version || '',
+      classifier: base.classifier || extra.classifier || '',
+      extension: base.extension || extra.extension || detected?.extension || '',
+    };
+  }
+  return base;
+}
+
 router.post('/:type', upload.array('files'), async (req, res) => {
   const { type } = req.params;
   const uploader = uploaderMap[type];
@@ -64,10 +79,34 @@ router.post('/:type', upload.array('files'), async (req, res) => {
   for (const file of files) {
     let uploadStatus = 'error';
     let uploadError  = null;
+    let uploadPath = '';
+    let version = '';
+    let packageName = '';
+    let artifactId = '';
+    let resultUrl = '';
     try {
+      const detectedResult = await detectArtifact(type, file, extra);
+      const coordinates = buildResultCoordinates(type, detectedResult.detected, extra);
+      uploadPath = buildArtifactPath(type, file.originalname, extra, {
+        ...detectedResult.detected,
+        coordinates,
+      });
+      version = coordinates.version || detectedResult.detected.version || '';
+      packageName = coordinates.packageName || coordinates.chartName || detectedResult.detected.name || '';
+      artifactId = coordinates.artifactId || '';
+
       const result = await uploader.upload({ file, nexusUrl, repo, username, password, extra });
       uploadStatus = 'success';
-      results.push({ file: file.originalname, status: 'success', result });
+      resultUrl = result?.downloadUrl || result?.url || result?.nexusUiUrl || '';
+      results.push({
+        file: file.originalname,
+        status: 'success',
+        repo,
+        coordinates,
+        path: result?.path || uploadPath,
+        nexusUiUrl: result?.nexusUiUrl || null,
+        downloadUrl: result?.downloadUrl || result?.url || null,
+      });
     } catch (err) {
       uploadStatus = err.isDuplicate ? 'warning' : 'error';
       uploadError  = err.message;
@@ -87,6 +126,11 @@ router.post('/:type', upload.array('files'), async (req, res) => {
         size:      file.size,
         status:    uploadStatus,
         error:     uploadError,
+        path:         uploadPath,
+        version,
+        package_name: packageName,
+        artifact_id:  artifactId,
+        result_url:   resultUrl,
       });
       fs.unlink(file.path, () => {});
     }

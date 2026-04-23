@@ -5,7 +5,8 @@ import UploadZone from './components/UploadZone';
 import UploadQueue from './components/UploadQueue';
 import UploadSummary from './components/UploadSummary';
 import SettingsModal from './components/SettingsModal';
-import StagingBar from './components/StagingBar';
+import PreflightReview from './components/PreflightReview';
+import RecentActivity from './components/RecentActivity';
 import LdapPage from './components/LdapPage';
 import HistoryPage from './components/HistoryPage';
 import BrowserPage from './components/BrowserPage';
@@ -46,7 +47,6 @@ function AppInner() {
   const [repoNames, setRepoNames] = useState(() =>
     loadFromStorage(REPO_NAMES_KEY, {})
   );
-  const [extraFields, setExtraFields] = useState({});
   const [availableRepos, setAvailableRepos] = useState([]);
   const [reposLoading, setReposLoading] = useState(false);
   const [reposError, setReposError] = useState('');
@@ -64,8 +64,10 @@ function AppInner() {
 
   const {
     staged, stagedSize, stageFiles, removeStaged, cancelStaged, pushStaged,
+    updateStagedRepo, updateStagedExtraFields, applyRepoToAll,
     queue, totalSize, estimatedTime, clearCompleted, retryItem, retryAllFailed, reorderQueue,
-  } = useUpload(settings, activeRepo, repoName, extraFields, toast);
+    preferences, toggleFavoriteRepo, recentActivity, reuseRecentActivity, buildEditableFields,
+  } = useUpload(settings, activeRepo, repoName, toast);
 
   // ── Reactive document title ————————————————————————————─
   useDocumentTitle(activePage, {
@@ -123,6 +125,14 @@ function AppInner() {
     localStorage.setItem(REPO_NAMES_KEY, JSON.stringify(updated));
   };
 
+  const handleReuseActivity = (activity) => {
+    if (!activity) return;
+    setActiveRepo(activity.repoType);
+    handleRepoNameChange(activity.repoType, activity.repoName);
+    reuseRecentActivity(activity);
+    toast.info(`Reusing ${activity.repoType.toUpperCase()} context from ${activity.repoName}`);
+  };
+
   return (
     <div className="bg-surface dark:bg-dark-bg text-on-surface dark:text-dark-text min-h-screen selection:bg-accent selection:text-white">
       <Sidebar
@@ -155,6 +165,9 @@ function AppInner() {
               availableRepos={availableRepos}
               reposLoading={reposLoading}
               reposError={reposError}
+              preferences={preferences}
+              defaultRepo={settings.defaultRepo || ''}
+              onToggleFavorite={toggleFavoriteRepo}
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
@@ -162,15 +175,28 @@ function AppInner() {
                 <UploadZone
                   onFiles={stageFiles}
                   repoType={activeRepo}
-                  extraFields={extraFields}
-                  onExtraChange={setExtraFields}
                   stagedCount={staged.length}
+                  settings={settings}
+                />
+                <PreflightReview
+                  items={staged}
+                  repoType={activeRepo}
+                  onRemove={removeStaged}
+                  onClear={cancelStaged}
+                  onUpload={pushStaged}
+                  onRepoChange={updateStagedRepo}
+                  onExtraFieldsChange={updateStagedExtraFields}
+                  onToggleFavorite={toggleFavoriteRepo}
+                  onApplyRepoToAll={applyRepoToAll}
+                  preferences={preferences}
+                  buildEditableFields={buildEditableFields}
                 />
                 <UploadSummary
-                  totalSize={totalSize}
+                  totalSize={totalSize + stagedSize}
                   estimatedTime={estimatedTime}
                   activeFormat={activeRepo.toUpperCase()}
                 />
+                <RecentActivity items={recentActivity} onReuse={handleReuseActivity} />
               </div>
               <div className="lg:col-span-5">
                 <UploadQueue
@@ -203,15 +229,6 @@ function AppInner() {
           </div>
         </footer>
       </main>
-
-      <StagingBar
-        staged={staged}
-        stagedSize={stagedSize}
-        onPush={pushStaged}
-        onCancel={cancelStaged}
-        onRemove={removeStaged}
-        repoName={repoName}
-      />
 
       {showSettings && (
         <SettingsModal
