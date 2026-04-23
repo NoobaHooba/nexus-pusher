@@ -18,6 +18,9 @@ const FORMAT_COLORS = {
 };
 
 const KNOWN_FORMATS = ['maven2','npm','docker','pypi','nuget','helm','yum','apt','raw'];
+const SEARCH_HISTORY_KEY = 'nexus-pusher-browser-search-history';
+const MAX_SEARCH_HISTORY = 6;
+const MAX_SUGGESTIONS = 8;
 
 function formatSize(bytes) {
   if (bytes == null) return '—';
@@ -49,6 +52,60 @@ function fileIcon(path) {
   return map[ext] || 'draft';
 }
 
+function loadSearchHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSearchHistory(history) {
+  try {
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history.slice(0, MAX_SEARCH_HISTORY)));
+  } catch (_) {
+    // ignore storage failures
+  }
+}
+
+function rememberSearchTerm(currentHistory, term) {
+  const normalized = String(term || '').trim();
+  if (!normalized) return currentHistory;
+  return [normalized, ...currentHistory.filter((item) => item.toLowerCase() !== normalized.toLowerCase())]
+    .slice(0, MAX_SEARCH_HISTORY);
+}
+
+function buildSearchSuggestions(inputValue, recentSearches, results) {
+  const query = String(inputValue || '').trim().toLowerCase();
+  const seen = new Set();
+  const suggestions = [];
+
+  const pushSuggestion = (value, hint, kind) => {
+    const normalizedValue = String(value || '').trim();
+    if (!normalizedValue) return;
+    const key = normalizedValue.toLowerCase();
+    if (seen.has(key)) return;
+    if (query && !normalizedValue.toLowerCase().includes(query)) return;
+    seen.add(key);
+    suggestions.push({ value: normalizedValue, hint, kind });
+  };
+
+  recentSearches.forEach((term) => pushSuggestion(term, 'Recent', 'recent'));
+  if (!query) return suggestions.slice(0, MAX_SUGGESTIONS);
+
+  results.forEach((asset) => {
+    const baseName = asset.path?.split('/').pop() || '';
+    pushSuggestion(asset.name, asset.group || asset.path || asset.repository || '', 'asset');
+    pushSuggestion(asset.group, 'Group', 'group');
+    if (baseName && baseName !== asset.name) {
+      pushSuggestion(baseName, asset.path || asset.repository || '', 'file');
+    }
+  });
+
+  return suggestions.slice(0, MAX_SUGGESTIONS);
+}
+
 // ─── api helpers ─────────────────────────────────────────────────────────────
 async function apiFetch(settings, path, body) {
   const res = await fetch(apiUrl(settings, path), {
@@ -75,7 +132,11 @@ export default function BrowserPage({ settings }) {
   const [selectedFormat, setSelectedFormat] = useState('');
   const [keyword, setKeyword]           = useState('');
   const [inputValue, setInputValue]     = useState('');
+  const [recentSearches, setRecentSearches] = useState(() => loadSearchHistory());
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
   const debounceRef = useRef(null);
+  const searchBoxRef = useRef(null);
 
   // results
   const [results, setResults]           = useState([]);
@@ -136,9 +197,26 @@ export default function BrowserPage({ settings }) {
   // debounce keyword input
   const handleInput = (val) => {
     setInputValue(val);
+    setShowSuggestions(true);
+    setHighlightedSuggestion(-1);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setKeyword(val), 400);
   };
+
+  const commitSearch = useCallback((value) => {
+    const nextValue = String(value || '').trim();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setInputValue(nextValue);
+    setKeyword(nextValue);
+    setShowSuggestions(false);
+    setHighlightedSuggestion(-1);
+    if (!nextValue) return;
+    setRecentSearches((current) => {
+      const next = rememberSearchTerm(current, nextValue);
+      saveSearchHistory(next);
+      return next;
+    });
+  }, []);
 
   // load more
   const loadMore = () => {
@@ -160,6 +238,19 @@ export default function BrowserPage({ settings }) {
 
   // ── derived ───────────────────────────────────────────────────────────────
   const availableFormats = [...new Set(repos.map(r => r.format).filter(Boolean))].sort();
+  const searchSuggestions = buildSearchSuggestions(inputValue, recentSearches, results);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!searchBoxRef.current?.contains(event.target)) {
+        setShowSuggestions(false);
+        setHighlightedSuggestion(-1);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   if (!nexusUrl) {
     return (
@@ -244,21 +335,91 @@ export default function BrowserPage({ settings }) {
 
           {/* Search bar */}
           <div className="flex gap-3 items-center flex-wrap">
-            <div className="relative flex-1 min-w-[260px]">
+            <div ref={searchBoxRef} className="relative flex-1 min-w-[260px]">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint text-[20px]">search</span>
               <input
                 value={inputValue}
                 onChange={e => handleInput(e.target.value)}
+                onFocus={() => setShowSuggestions(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
+                    if (searchSuggestions.length === 0) return;
+                    e.preventDefault();
+                    setShowSuggestions(true);
+                    setHighlightedSuggestion((current) => (
+                      current >= searchSuggestions.length - 1 ? 0 : current + 1
+                    ));
+                  } else if (e.key === 'ArrowUp') {
+                    if (searchSuggestions.length === 0) return;
+                    e.preventDefault();
+                    setShowSuggestions(true);
+                    setHighlightedSuggestion((current) => (
+                      current <= 0 ? searchSuggestions.length - 1 : current - 1
+                    ));
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const suggested = highlightedSuggestion >= 0 ? searchSuggestions[highlightedSuggestion] : null;
+                    commitSearch(suggested?.value || inputValue);
+                  } else if (e.key === 'Escape') {
+                    setShowSuggestions(false);
+                    setHighlightedSuggestion(-1);
+                  }
+                }}
                 placeholder="Search artifacts by name, group, version…"
                 className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 bg-white dark:bg-dark-surface placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
               />
               {inputValue && (
                 <button
-                  onClick={() => { setInputValue(''); setKeyword(''); }}
+                  onClick={() => {
+                    setInputValue('');
+                    setKeyword('');
+                    setShowSuggestions(false);
+                    setHighlightedSuggestion(-1);
+                  }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint hover:text-slate-600 dark:hover:text-dark-text"
                 >
                   <span className="material-symbols-outlined text-[18px]">close</span>
                 </button>
+              )}
+              {showSuggestions && searchSuggestions.length > 0 && (
+                <div className="absolute top-[calc(100%+0.5rem)] left-0 right-0 z-20 overflow-hidden rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-xl dark:shadow-black/30">
+                  <ul className="py-2">
+                    {searchSuggestions.map((suggestion, index) => (
+                      <li key={`${suggestion.kind}-${suggestion.value}`}>
+                        <button
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            commitSearch(suggestion.value);
+                          }}
+                          onMouseEnter={() => setHighlightedSuggestion(index)}
+                          className={`flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors ${
+                            highlightedSuggestion === index
+                              ? 'bg-slate-50 dark:bg-dark-surface-2'
+                              : 'hover:bg-slate-50 dark:hover:bg-dark-surface-2'
+                          }`}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-semibold text-primary dark:text-dark-text">
+                              {suggestion.value}
+                            </span>
+                            {suggestion.hint && (
+                              <span className="block truncate text-[11px] text-slate-400 dark:text-dark-text-faint">
+                                {suggestion.hint}
+                              </span>
+                            )}
+                          </span>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            suggestion.kind === 'recent'
+                              ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'
+                              : 'bg-accent-dim/50 text-accent dark:bg-dark-accent-dim dark:text-dark-accent'
+                          }`}>
+                            {suggestion.kind === 'recent' ? 'Recent' : 'Match'}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
 
