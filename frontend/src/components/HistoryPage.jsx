@@ -76,7 +76,7 @@ function exportCsv(rows, settings) {
     r.path || '',
     r.status,
     r.error || '',
-    buildNexusBrowseUrl(settings, r.repo || r.repoName, r.path) || rewriteNexusUrl(settings, r.nexus_url || r.nexusUiUrl || ''),
+    buildNexusBrowseUrl(settings, r.repo || r.repoName, r.path, r) || rewriteNexusUrl(settings, r.nexus_url || r.nexusUiUrl || ''),
   ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
   const csv  = [header.join(','), ...lines].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -333,7 +333,7 @@ export default function HistoryPage({ settings }) {
                 const repoType = row.type     || row.repoType || '';
                 const repoName = row.repo     || row.repoName || '\u2014';
                 const ts       = row.ts       || row.timestamp;
-                const nexusUrl = buildNexusBrowseUrl(settings, row.repo || row.repoName, row.path) || rewriteNexusUrl(settings, row.nexus_url || row.nexusUiUrl || '');
+                const nexusUrl = buildNexusBrowseUrl(settings, row.repo || row.repoName, row.path, row) || rewriteNexusUrl(settings, row.nexus_url || row.nexusUiUrl || '');
                 return (
                   <tr key={row.id ?? i} className={`border-b border-slate-50 dark:border-dark-border hover:bg-slate-50/60 dark:hover:bg-dark-surface-2/70 transition-colors ${i % 2 === 0 ? '' : 'bg-slate-50/30 dark:bg-dark-surface-2/30'}`}>
                     <td className="px-5 py-3">

@@ -371,6 +371,16 @@ function buildArtifactPath(type, fileName, extra = {}, detected = {}) {
     return `${packageName}/-/${tarballName}`;
   }
 
+  if (type === 'helm' || type === 'pypi' || type === 'nuget') {
+    const packageName = detected.coordinates?.chartName
+      || detected.coordinates?.packageName
+      || detected.name
+      || stripKnownExtension(fileName);
+    const version = detected.coordinates?.version || detected.version || '';
+    if (!packageName || !version) return fileName;
+    return `${packageName}/${version}/${fileName}`;
+  }
+
   return fileName;
 }
 

@@ -40,6 +40,12 @@ const uploaderMap = {
   raw:    rawUploader,
 };
 
+function buildBrowseUrl(nexusUrl, repo, path) {
+  const base = String(nexusUrl || '').replace(/\/+$/, '');
+  if (!base || !repo) return null;
+  return `${base}/#browse/browse:${repo}${path ? `:${encodeURIComponent(String(path).replace(/^\/+/, ''))}` : ''}`;
+}
+
 function buildResultCoordinates(type, detected, extra) {
   const base = detected?.coordinates || {};
   if (type === 'maven') {
@@ -112,15 +118,21 @@ router.post('/:type', upload.array('files'), async (req, res) => {
       artifactId = coordinates.artifactId || '';
 
       const result = await uploader.upload({ file, nexusUrl, repo, username, password, extra: uploadExtra });
+      const normalizedPath = result?.path && (String(result.path).includes('/') || !uploadPath)
+        ? result.path
+        : uploadPath;
+      const normalizedBrowseUrl = result?.nexusUiUrl && normalizedPath
+        ? buildBrowseUrl(nexusUrl, repo, normalizedPath)
+        : (result?.nexusUiUrl || buildBrowseUrl(nexusUrl, repo, normalizedPath));
       uploadStatus = 'success';
-      resultUrl = result?.downloadUrl || result?.url || result?.nexusUiUrl || '';
+      resultUrl = result?.downloadUrl || result?.url || normalizedBrowseUrl || result?.nexusUiUrl || '';
       results.push({
         file: file.originalname,
         status: 'success',
         repo,
         coordinates,
-        path: result?.path || uploadPath,
-        nexusUiUrl: result?.nexusUiUrl || null,
+        path: normalizedPath,
+        nexusUiUrl: normalizedBrowseUrl,
         downloadUrl: result?.downloadUrl || result?.url || null,
       });
     } catch (err) {

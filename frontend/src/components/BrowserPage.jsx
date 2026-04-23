@@ -153,7 +153,7 @@ export default function BrowserPage({ settings }) {
     setDetailLoading(true);
     try {
       const full = await apiFetch(settings, '/api/browse/asset', { nexusUrl, username, password, id: asset.id });
-      setDetail(rewriteNexusAssetUrls(settings, full));
+      setDetail(rewriteNexusAssetUrls(settings, { ...asset, ...full }));
     } catch (_) { /* keep the partial asset */ }
     finally { setDetailLoading(false); }
   };
@@ -362,9 +362,9 @@ export default function BrowserPage({ settings }) {
                           {formatDate(asset.lastModified || asset.blobCreated)}
                         </td>
                         <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                          {buildNexusBrowseUrl(settings, asset.repository, asset.path) && (
+                          {buildNexusBrowseUrl(settings, asset.repository, asset.path, asset) && (
                             <a
-                              href={buildNexusBrowseUrl(settings, asset.repository, asset.path)}
+                              href={buildNexusBrowseUrl(settings, asset.repository, asset.path, asset)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-xs font-bold text-accent hover:underline whitespace-nowrap"
@@ -437,9 +437,9 @@ export default function BrowserPage({ settings }) {
               <div className="flex flex-col gap-6 p-6">
                 {/* Action buttons */}
                 <div className="flex gap-3">
-                  {buildNexusBrowseUrl(settings, detail.repository, detail.path) && (
+                  {buildNexusBrowseUrl(settings, detail.repository, detail.path, detail) && (
                     <a
-                      href={buildNexusBrowseUrl(settings, detail.repository, detail.path)}
+                      href={buildNexusBrowseUrl(settings, detail.repository, detail.path, detail)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary dark:bg-dark-accent text-white dark:text-dark-bg text-sm font-bold hover:bg-black dark:hover:opacity-90 transition-colors"
@@ -461,7 +461,7 @@ export default function BrowserPage({ settings }) {
                   )}
                   {detail.downloadUrl && (
                     <button
-                      onClick={() => navigator.clipboard.writeText(buildNexusBrowseUrl(settings, detail.repository, detail.path) || rewriteNexusUrl(settings, detail.downloadUrl))}
+                      onClick={() => navigator.clipboard.writeText(buildNexusBrowseUrl(settings, detail.repository, detail.path, detail) || rewriteNexusUrl(settings, detail.downloadUrl))}
                       className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors"
                     >
                       <span className="material-symbols-outlined text-[16px]">content_copy</span>

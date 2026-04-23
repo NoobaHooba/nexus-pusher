@@ -1,6 +1,29 @@
 const express = require('express');
 const router = express.Router();
-const { fetchRepositories, makeHeaders, normalizeBaseUrl, searchAssets } = require('../lib/nexusClient');
+const { fetchRepositories, makeHeaders, normalizeBaseUrl, searchComponents } = require('../lib/nexusClient');
+
+function flattenComponentResults(data) {
+  const items = Array.isArray(data?.items) ? data.items : [];
+
+  return {
+    continuationToken: data?.continuationToken || null,
+    items: items.flatMap((component) => {
+      const assets = Array.isArray(component?.assets) && component.assets.length > 0
+        ? component.assets
+        : [];
+
+      return assets.map((asset) => ({
+        ...asset,
+        componentId: component.id || '',
+        repository: asset.repository || component.repository || '',
+        format: asset.format || component.format || '',
+        name: component.name || '',
+        version: component.version || '',
+        group: component.group || '',
+      }));
+    }),
+  };
+}
 
 /**
  * POST /api/browse/repos
@@ -20,7 +43,7 @@ router.post('/repos', async (req, res) => {
 /**
  * POST /api/browse/search
  * Body: { nexusUrl, username, password, keyword, repository, format, continuationToken }
- * Uses Nexus Search Assets API: /service/rest/v1/search/assets
+ * Uses Nexus Search Components API so browse links can include component context.
  */
 router.post('/search', async (req, res) => {
   const { nexusUrl, username, password, keyword, repository, format, continuationToken } = req.body || {};
@@ -35,13 +58,13 @@ router.post('/search', async (req, res) => {
   params.set('pageSize', '50');
 
   try {
-    const data = await searchAssets({
+    const data = await searchComponents({
       nexusUrl,
       username,
       password,
       query: Object.fromEntries(params.entries()),
     });
-    return res.json(data); // { items: [...], continuationToken }
+    return res.json(flattenComponentResults(data));
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message });
   }

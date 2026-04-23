@@ -2,6 +2,23 @@ function trimTrailingSlash(value) {
   return String(value || '').replace(/\/+$/, '');
 }
 
+function normalizeBrowsePath(path = '', meta = {}) {
+  const rawPath = String(path || '');
+  const trimmedPath = rawPath.replace(/^\/+/, '');
+  const format = String(meta.format || meta.type || '').toLowerCase();
+  const name = meta.name || meta.package_name || meta.packageName || meta.artifact_id || meta.artifactId || meta.chartName || '';
+  const version = meta.version || '';
+
+  if (!trimmedPath) return '';
+  if (trimmedPath.includes('/')) return trimmedPath;
+
+  if (name && version && ['helm', 'pypi', 'nuget'].includes(format)) {
+    return `${name}/${version}/${trimmedPath}`;
+  }
+
+  return trimmedPath;
+}
+
 export function getNexusBrowserBaseUrl(settings) {
   const explicit = trimTrailingSlash(settings?.nexusBrowserUrl || '');
   if (explicit) return explicit;
@@ -23,10 +40,11 @@ export function getNexusBrowserBaseUrl(settings) {
   return configured;
 }
 
-export function buildNexusBrowseUrl(settings, repo, path = '') {
+export function buildNexusBrowseUrl(settings, repo, path = '', meta = {}) {
   const base = getNexusBrowserBaseUrl(settings);
   if (!base || !repo) return '';
-  return `${base}/#browse/browse:${repo}${path ? `:${encodeURIComponent(path)}` : ''}`;
+  const browsePath = normalizeBrowsePath(path, meta);
+  return `${base}/#browse/browse:${repo}${browsePath ? `:${encodeURIComponent(browsePath)}` : ''}`;
 }
 
 export function rewriteNexusUrl(settings, rawUrl) {
@@ -50,6 +68,6 @@ export function rewriteNexusAssetUrls(settings, asset) {
     ...asset,
     downloadUrl: rewriteNexusUrl(settings, asset.downloadUrl),
     nexusUiUrl: rewriteNexusUrl(settings, asset.nexusUiUrl),
-    browseUrl: buildNexusBrowseUrl(settings, asset.repository, asset.path),
+    browseUrl: buildNexusBrowseUrl(settings, asset.repository, asset.path, asset),
   };
 }
