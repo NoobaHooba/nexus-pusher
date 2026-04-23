@@ -37,7 +37,7 @@ async function runHealthChecks(settings) {
   return results;
 }
 
-export default function Sidebar({ nexusLogo, onOpenSettings, activePage, onNavigate, settings, theme, onToggleTheme }) {
+export default function Sidebar({ nexusLogo, activePage, onNavigate, settings, theme, onToggleTheme }) {
   const [health, setHealth]     = useState({ backend: null, nexus: null, nexusMs: null });
   const [checking, setChecking] = useState(false);
   const intervalRef = useRef(null);
@@ -153,20 +153,8 @@ export default function Sidebar({ nexusLogo, onOpenSettings, activePage, onNavig
         </div>
       </div>
 
-      {/* Footer links + theme toggle */}
+      {/* Footer controls */}
       <div className="flex flex-col gap-2 border-t border-slate-100 dark:border-dark-border pt-4">
-        <button onClick={onOpenSettings} className="flex items-center gap-3 px-4 py-2 text-on-surface-variant dark:text-dark-text-muted text-sm font-medium hover:text-primary dark:hover:text-dark-text transition-colors">
-          <span className="material-symbols-outlined text-[18px]">settings</span>
-          <span>Settings</span>
-        </button>
-        <a href="#" className="flex items-center gap-3 px-4 py-2 text-on-surface-variant dark:text-dark-text-muted text-sm font-medium hover:text-primary dark:hover:text-dark-text transition-colors">
-          <span className="material-symbols-outlined text-[18px]">help</span>
-          <span>Support</span>
-        </a>
-        <a href="#" className="flex items-center gap-3 px-4 py-2 text-on-surface-variant dark:text-dark-text-muted text-sm font-medium hover:text-primary dark:hover:text-dark-text transition-colors">
-          <span className="material-symbols-outlined text-[18px]">description</span>
-          <span>Documentation</span>
-        </a>
         <button
           onClick={onToggleTheme}
           className="mt-1 flex items-center gap-3 px-4 py-2 text-on-surface-variant dark:text-dark-text-muted text-sm font-medium hover:text-primary dark:hover:text-dark-text transition-colors"

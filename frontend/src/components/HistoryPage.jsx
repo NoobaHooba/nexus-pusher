@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiUrl } from '../lib/backendApi';
+import { buildNexusBrowseUrl, rewriteNexusUrl } from '../lib/nexusLinks';
 
 const STATUS_STYLES = {
   success: { badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300', icon: 'check_circle', label: 'Success' },
@@ -62,7 +63,7 @@ function formatDate(ts) {
   return new Date(ts).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-function exportCsv(rows) {
+function exportCsv(rows, settings) {
   const header = ['Timestamp', 'User', 'File', 'Size', 'Format', 'Repository', 'Version', 'Path', 'Status', 'Error', 'Nexus URL'];
   const lines = rows.map(r => [
     formatDate(r.ts || r.timestamp),
@@ -75,7 +76,7 @@ function exportCsv(rows) {
     r.path || '',
     r.status,
     r.error || '',
-    r.nexus_url || r.nexusUiUrl || '',
+    buildNexusBrowseUrl(settings, r.repo || r.repoName, r.path) || rewriteNexusUrl(settings, r.nexus_url || r.nexusUiUrl || ''),
   ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
   const csv  = [header.join(','), ...lines].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -194,7 +195,7 @@ export default function HistoryPage({ settings }) {
             Refresh
           </button>
           <button
-            onClick={() => exportCsv(rows)}
+            onClick={() => exportCsv(rows, settings)}
             disabled={rows.length === 0}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-semibold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-40"
           >
@@ -332,7 +333,7 @@ export default function HistoryPage({ settings }) {
                 const repoType = row.type     || row.repoType || '';
                 const repoName = row.repo     || row.repoName || '\u2014';
                 const ts       = row.ts       || row.timestamp;
-                const nexusUrl = row.nexus_url || row.nexusUiUrl;
+                const nexusUrl = buildNexusBrowseUrl(settings, row.repo || row.repoName, row.path) || rewriteNexusUrl(settings, row.nexus_url || row.nexusUiUrl || '');
                 return (
                   <tr key={row.id ?? i} className={`border-b border-slate-50 dark:border-dark-border hover:bg-slate-50/60 dark:hover:bg-dark-surface-2/70 transition-colors ${i % 2 === 0 ? '' : 'bg-slate-50/30 dark:bg-dark-surface-2/30'}`}>
                     <td className="px-5 py-3">

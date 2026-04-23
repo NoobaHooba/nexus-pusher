@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { apiUrl, getBackendBaseUrl } from '../lib/backendApi';
 
-// 15-second client-side timeout so the UI never hangs if the backend is slow.
 const VALIDATE_TIMEOUT_MS = 15_000;
 
 async function validateCredentials({ nexusUrl, username, password, backendUrl }) {
@@ -15,30 +14,27 @@ async function validateCredentials({ nexusUrl, username, password, backendUrl })
       signal: controller.signal,
     });
     clearTimeout(timer);
-    const data = await res.json();
-    return data;
+    return await res.json();
   } catch (err) {
     clearTimeout(timer);
     if (err.name === 'AbortError') {
       return { ok: false, message: `Validation timed out after ${VALIDATE_TIMEOUT_MS / 1000} s — backend may be unreachable` };
     }
-    return { ok: false, message: 'Cannot reach the backend — check the Backend URL or backend route.' };
+    return { ok: false, message: 'Cannot reach the backend — check the deployment routing.' };
   }
 }
 
 export default function SettingsModal({ settings, onSave, onClose }) {
-  const [form, setForm]       = useState({
-    nexusUrl: '',
+  const [form, setForm] = useState({
     username: '',
     password: '',
-    defaultRepo: '',
-    dockerRegistry: '',
     backendUrl: getBackendBaseUrl(settings),
     ...settings,
   });
   const [testing, setTesting] = useState(false);
-  const [status, setStatus]   = useState(null);
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const [status, setStatus] = useState(null);
+
+  const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape' && !testing) onClose(); };
@@ -48,32 +44,25 @@ export default function SettingsModal({ settings, onSave, onClose }) {
 
   const handleSave = async () => {
     setStatus(null);
-    if (!form.nexusUrl?.trim()) { setStatus({ ok: false, message: 'Nexus URL is required' }); return; }
+    if (!settings?.nexusUrl?.trim()) {
+      setStatus({ ok: false, message: 'Nexus is not configured for this deployment. Ask the deployer to set the backend runtime config.' });
+      return;
+    }
     setTesting(true);
-    const result = await validateCredentials(form);
+    const result = await validateCredentials({
+      nexusUrl: settings.nexusUrl,
+      username: form.username,
+      password: form.password,
+      backendUrl: form.backendUrl,
+    });
     setTesting(false);
     setStatus(result);
-    if (result.ok) onSave(form);
+    if (result.ok) onSave({ username: form.username || '', password: form.password || '' });
   };
 
   const handleBackdropClick = (e) => {
     if (e.target === e.currentTarget && !testing) onClose();
   };
-
-  const fields = [
-    {
-      key: 'backendUrl',
-      label: 'Backend URL',
-      placeholder: 'https://nexus-pusher-backend.apps.example.com',
-      type: 'text',
-      hint: 'Optional. Use this when the frontend is served outside OpenShift and cannot proxy /api locally.',
-    },
-    { key: 'nexusUrl',    label: 'Nexus URL',         placeholder: 'http://nexus:8081',   type: 'text',     hint: 'Direct Nexus URL — the backend contacts it server-side, no proxy needed.' },
-    { key: 'username',    label: 'Username',           placeholder: 'admin',               type: 'text' },
-    { key: 'password',    label: 'Password',           placeholder: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022', type: 'password' },
-    { key: 'defaultRepo', label: 'Default Repository', placeholder: 'maven-releases',      type: 'text' },
-    { key: 'dockerRegistry', label: 'Docker Registry', placeholder: 'registry.example.com', type: 'text', hint: 'Used for Docker CLI guidance shown in the upload page.' },
-  ];
 
   return (
     <div
@@ -82,34 +71,46 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     >
       <div className="bg-white dark:bg-dark-surface rounded-3xl shadow-2xl w-full max-w-md p-8 flex flex-col gap-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-extrabold text-primary dark:text-dark-text">Nexus Connection</h2>
+          <h2 className="text-xl font-extrabold text-primary dark:text-dark-text">Login</h2>
           <button
             onClick={onClose}
-            aria-label="Close settings"
+            aria-label="Close login"
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-dark-surface-2 transition-colors"
           >
             <span className="material-symbols-outlined text-slate-400 dark:text-dark-text-muted">close</span>
           </button>
         </div>
+
         <p className="text-sm text-on-surface-variant dark:text-dark-text-muted">
-          Credentials are sent to the backend and tested against Nexus server-side. If this frontend is hosted outside OpenShift, set Backend URL to the backend route.
+          Enter your Nexus credentials. Repository endpoints are configured by the deployment, not by each user.
         </p>
+
         <div className="flex flex-col gap-4">
-          {fields.map(({ key, label, placeholder, type, hint }) => (
-            <div key={key} className="flex flex-col gap-1.5">
-              <label htmlFor={`settings-${key}`} className="text-xs font-semibold text-on-surface-variant dark:text-dark-text-muted">{label}</label>
-              <input
-                id={`settings-${key}`}
-                type={type}
-                value={form[key] || ''}
-                onChange={e => set(key, e.target.value)}
-                placeholder={placeholder}
-                onKeyDown={e => { if (e.key === 'Enter' && !testing) handleSave(); }}
-                className="px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all"
-              />
-              {hint && <p className="text-xs text-slate-400 dark:text-dark-text-faint">{hint}</p>}
-            </div>
-          ))}
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="login-username" className="text-xs font-semibold text-on-surface-variant dark:text-dark-text-muted">Username</label>
+            <input
+              id="login-username"
+              type="text"
+              value={form.username || ''}
+              onChange={(e) => set('username', e.target.value)}
+              placeholder="admin"
+              onKeyDown={(e) => { if (e.key === 'Enter' && !testing) handleSave(); }}
+              className="px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="login-password" className="text-xs font-semibold text-on-surface-variant dark:text-dark-text-muted">Password</label>
+            <input
+              id="login-password"
+              type="password"
+              value={form.password || ''}
+              onChange={(e) => set('password', e.target.value)}
+              placeholder="••••••••"
+              onKeyDown={(e) => { if (e.key === 'Enter' && !testing) handleSave(); }}
+              className="px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all"
+            />
+          </div>
         </div>
 
         {status && (
@@ -125,7 +126,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
         <div className="flex gap-3 pt-2">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors">Cancel</button>
           <button onClick={handleSave} disabled={testing} className="flex-1 py-3 rounded-xl bg-primary dark:bg-dark-accent dark:text-dark-bg text-white text-sm font-bold hover:bg-black dark:hover:opacity-90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-            {testing ? 'Testing...' : 'Save Settings'}
+            {testing ? 'Testing...' : 'Save Login'}
           </button>
         </div>
       </div>

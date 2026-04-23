@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { UPLOADERS, runPreflight } from '../lib/nexusApi';
+import { rewriteNexusUrl } from '../lib/nexusLinks';
 
 const HISTORY_KEY = 'nexus-pusher-history';
 const PREFS_KEY = 'nexus-pusher-user-prefs';
@@ -387,7 +388,7 @@ export function useUpload(settings, repoType, repoName, toast) {
             toastRef.current?.success(`Pushed to ${item.repoName}${attempt > 0 ? ` on attempt ${attempt + 1}` : ''}`, {
               title: item.name,
               ...(patch.nexusUiUrl
-                ? { action: { label: 'Open in Nexus', onClick: () => window.open(patch.nexusUiUrl, '_blank') } }
+                ? { action: { label: 'Open in Nexus', onClick: () => window.open(rewriteNexusUrl(item.settings, patch.nexusUiUrl), '_blank') } }
                 : {}),
             });
 

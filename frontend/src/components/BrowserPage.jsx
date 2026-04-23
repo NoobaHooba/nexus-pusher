@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiUrl } from '../lib/backendApi';
+import { buildNexusBrowseUrl, rewriteNexusAssetUrls, rewriteNexusUrl } from '../lib/nexusLinks';
 
 // ─── format colour map ────────────────────────────────────────────────────────
 const FORMAT_COLORS = {
@@ -110,7 +111,7 @@ export default function BrowserPage({ settings }) {
         keyword: kw, repository: repo, format: fmt,
         continuationToken: token || undefined,
       });
-      const items = data.items || [];
+      const items = (data.items || []).map((item) => rewriteNexusAssetUrls(settings, item));
       if (append) {
         setResults(r => [...r, ...items]);
         setTotalLoaded(t => t + items.length);
@@ -152,7 +153,7 @@ export default function BrowserPage({ settings }) {
     setDetailLoading(true);
     try {
       const full = await apiFetch(settings, '/api/browse/asset', { nexusUrl, username, password, id: asset.id });
-      setDetail(full);
+      setDetail(rewriteNexusAssetUrls(settings, full));
     } catch (_) { /* keep the partial asset */ }
     finally { setDetailLoading(false); }
   };
@@ -361,9 +362,9 @@ export default function BrowserPage({ settings }) {
                           {formatDate(asset.lastModified || asset.blobCreated)}
                         </td>
                         <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                          {asset.downloadUrl && (
+                          {buildNexusBrowseUrl(settings, asset.repository, asset.path) && (
                             <a
-                              href={asset.downloadUrl}
+                              href={buildNexusBrowseUrl(settings, asset.repository, asset.path)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-xs font-bold text-accent hover:underline whitespace-nowrap"
@@ -436,12 +437,23 @@ export default function BrowserPage({ settings }) {
               <div className="flex flex-col gap-6 p-6">
                 {/* Action buttons */}
                 <div className="flex gap-3">
+                  {buildNexusBrowseUrl(settings, detail.repository, detail.path) && (
+                    <a
+                      href={buildNexusBrowseUrl(settings, detail.repository, detail.path)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary dark:bg-dark-accent text-white dark:text-dark-bg text-sm font-bold hover:bg-black dark:hover:opacity-90 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                      View in Nexus
+                    </a>
+                  )}
                   {detail.downloadUrl && (
                     <a
                       href={detail.downloadUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary dark:bg-dark-accent text-white dark:text-dark-bg text-sm font-bold hover:bg-black dark:hover:opacity-90 transition-colors"
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors"
                     >
                       <span className="material-symbols-outlined text-[16px]">download</span>
                       Download
@@ -449,11 +461,11 @@ export default function BrowserPage({ settings }) {
                   )}
                   {detail.downloadUrl && (
                     <button
-                      onClick={() => navigator.clipboard.writeText(detail.downloadUrl)}
+                      onClick={() => navigator.clipboard.writeText(buildNexusBrowseUrl(settings, detail.repository, detail.path) || rewriteNexusUrl(settings, detail.downloadUrl))}
                       className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors"
                     >
                       <span className="material-symbols-outlined text-[16px]">content_copy</span>
-                      Copy URL
+                      Copy Nexus Link
                     </button>
                   )}
                 </div>

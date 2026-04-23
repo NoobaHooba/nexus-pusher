@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
+import { rewriteNexusUrl } from '../lib/nexusLinks';
 
 const STATUS_CONFIG = {
   pending:   { label: 'Pending',   bgClass: 'bg-slate-100 dark:bg-dark-surface-2 text-slate-500 dark:text-dark-text-muted', iconBg: 'bg-slate-50 dark:bg-dark-surface-2 text-slate-400 dark:text-dark-text-faint', icon: 'description',  cardClass: 'border-slate-50 dark:border-dark-border' },
@@ -69,7 +70,7 @@ function RetryBadge({ retryCount }) {
   );
 }
 
-export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryAllFailed, onReorder }) {
+export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryAllFailed, onReorder, settings }) {
   const dragItemId = useRef(null);
   const [overItemId, setOverItemId] = useState(null);
 
@@ -197,7 +198,7 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
                   </p>
                   {isDone && item.nexusUiUrl && (
                     <div className="mt-1.5 flex flex-col gap-1">
-                      <a href={item.nexusUiUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] font-bold text-accent dark:text-dark-accent hover:underline">
+                      <a href={rewriteNexusUrl(settings, item.nexusUiUrl)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] font-bold text-accent dark:text-dark-accent hover:underline">
                         <span className="material-symbols-outlined text-[12px]">open_in_new</span>
                         Open in Nexus
                       </a>
@@ -256,7 +257,7 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
                           {c.name}{c.version ? `@${c.version}` : ''}
                           {c.downloadUrl ? (
                             <a
-                              href={c.downloadUrl}
+                              href={rewriteNexusUrl(settings, c.downloadUrl)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="ml-1 underline opacity-70 hover:opacity-100"

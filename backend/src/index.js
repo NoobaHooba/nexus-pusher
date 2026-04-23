@@ -10,6 +10,7 @@ const checkDuplicateRoutes = require('./routes/checkDuplicate');
 const healthRoutes         = require('./routes/health');
 const historyRoutes        = require('./routes/history');
 const preflightRoutes      = require('./routes/preflight');
+const runtimeConfigRoutes  = require('./routes/runtimeConfig');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -26,6 +27,7 @@ app.use('/api/check-duplicate', checkDuplicateRoutes);
 app.use('/api/health',          healthRoutes);
 app.use('/api/history',         historyRoutes);
 app.use('/api/preflight',       preflightRoutes);
+app.use('/api/runtime-config',  runtimeConfigRoutes);
 
 app.listen(PORT, () => {
   console.log(`Nexus Pusher backend running on port ${PORT}`);

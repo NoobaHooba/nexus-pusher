@@ -15,6 +15,7 @@ import { ToastProvider, useToast } from './hooks/useToast';
 import { useUpload } from './hooks/useUpload';
 import { useDocumentTitle } from './hooks/useDocumentTitle';
 import { fetchRepositories } from './lib/nexusApi';
+import { apiUrl } from './lib/backendApi';
 
 const NEXUS_LOGO = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2301696f'/%3E%3Cpath d='M9 22 L16 10 L23 22' stroke='white' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath d='M12 18 L16 10 L20 18' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' fill='white' fill-opacity='0.25'/%3E%3C/svg%3E";
 
@@ -40,9 +41,11 @@ function AppInner() {
   const [activePage, setActivePage]     = useState('upload');
   const [activeRepo, setActiveRepo]     = useState('npm');
   const [showSettings, setShowSettings] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [theme, setTheme]               = useState(getInitialTheme);
+  const [runtimeConfig, setRuntimeConfig] = useState({ nexusUrl: '', nexusBrowserUrl: '', dockerRegistry: '' });
   const [settings, setSettings] = useState(() =>
-    loadFromStorage(SETTINGS_KEY, { nexusUrl: '', username: '', password: '' })
+    loadFromStorage(SETTINGS_KEY, { username: '', password: '' })
   );
   const [repoNames, setRepoNames] = useState(() =>
     loadFromStorage(REPO_NAMES_KEY, {})
@@ -51,6 +54,7 @@ function AppInner() {
   const [reposLoading, setReposLoading] = useState(false);
   const [reposError, setReposError] = useState('');
 
+  const effectiveSettings = { ...runtimeConfig, ...settings };
   const repoName = repoNames[activeRepo] || '';
 
   useEffect(() => {
@@ -67,7 +71,7 @@ function AppInner() {
     updateStagedRepo, updateStagedExtraFields, applyRepoToAll,
     queue, totalSize, estimatedTime, clearCompleted, retryItem, retryAllFailed, reorderQueue,
     preferences, toggleFavoriteRepo, recentActivity, reuseRecentActivity, buildEditableFields,
-  } = useUpload(settings, activeRepo, repoName, toast);
+  } = useUpload(effectiveSettings, activeRepo, repoName, toast);
 
   // ── Reactive document title ————————————————————————————─
   useDocumentTitle(activePage, {
@@ -77,11 +81,18 @@ function AppInner() {
   });
 
   useEffect(() => {
-    if (!settings.nexusUrl) setShowSettings(true);
+    fetch(apiUrl({}, '/api/runtime-config'))
+      .then((res) => res.json())
+      .then((data) => setRuntimeConfig(data || {}))
+      .catch(() => setRuntimeConfig({ nexusUrl: '', nexusBrowserUrl: '', dockerRegistry: '' }));
   }, []);
 
   useEffect(() => {
-    const { nexusUrl, username, password } = settings || {};
+    if (runtimeConfig.nexusUrl && !settings.username) setShowSettings(true);
+  }, [runtimeConfig.nexusUrl, settings.username]);
+
+  useEffect(() => {
+    const { nexusUrl, username, password } = effectiveSettings || {};
     if (!nexusUrl) {
       setAvailableRepos([]);
       setReposError('');
@@ -92,7 +103,7 @@ function AppInner() {
     let cancelled = false;
     setReposLoading(true);
 
-    fetchRepositories({ nexusUrl, username, password, settings })
+    fetchRepositories({ nexusUrl, username, password, settings: effectiveSettings })
       .then((repos) => {
         if (cancelled) return;
         setAvailableRepos(repos);
@@ -110,13 +121,23 @@ function AppInner() {
     return () => {
       cancelled = true;
     };
-  }, [settings]);
+  }, [effectiveSettings]);
 
   const handleSaveSettings = (s) => {
-    setSettings(s);
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+    const next = { username: s.username || '', password: s.password || '' };
+    setSettings(next);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
     setShowSettings(false);
-    toast.success('Settings saved & connection verified');
+    setShowUserMenu(false);
+    toast.success('Login saved & connection verified');
+  };
+
+  const handleLogout = () => {
+    const next = { username: '', password: '' };
+    setSettings(next);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    setShowUserMenu(false);
+    toast.info('Logged out locally');
   };
 
   const handleRepoNameChange = (type, name) => {
@@ -137,15 +158,42 @@ function AppInner() {
     <div className="bg-surface dark:bg-dark-bg text-on-surface dark:text-dark-text min-h-screen selection:bg-accent selection:text-white">
       <Sidebar
         nexusLogo={NEXUS_LOGO}
-        onOpenSettings={() => setShowSettings(true)}
         activePage={activePage}
         onNavigate={setActivePage}
-        settings={settings}
+        settings={effectiveSettings}
         theme={theme}
         onToggleTheme={toggleTheme}
       />
 
       <main className="ml-64 p-10 flex flex-col gap-12 max-w-[1400px]">
+        <div className="flex justify-end relative">
+          <button
+            onClick={() => setShowUserMenu((open) => !open)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface text-sm font-bold text-primary dark:text-dark-text"
+          >
+            <span className="material-symbols-outlined text-[18px]">account_circle</span>
+            {effectiveSettings.username || 'Login'}
+            <span className="material-symbols-outlined text-[18px]">expand_more</span>
+          </button>
+          {showUserMenu && (
+            <div className="absolute top-14 right-0 w-52 rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-xl z-20 p-2 flex flex-col">
+              <button
+                onClick={() => { setShowSettings(true); setShowUserMenu(false); }}
+                className="text-left px-3 py-2.5 rounded-xl text-sm font-semibold text-primary dark:text-dark-text hover:bg-slate-50 dark:hover:bg-dark-surface-2"
+              >
+                {effectiveSettings.username ? 'Edit Login' : 'Login'}
+              </button>
+              {effectiveSettings.username && (
+                <button
+                  onClick={handleLogout}
+                  className="text-left px-3 py-2.5 rounded-xl text-sm font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                >
+                  Log Out
+                </button>
+              )}
+            </div>
+          )}
+        </div>
 
         {activePage === 'upload' && (
           <>
@@ -166,7 +214,7 @@ function AppInner() {
               reposLoading={reposLoading}
               reposError={reposError}
               preferences={preferences}
-              defaultRepo={settings.defaultRepo || ''}
+              defaultRepo={effectiveSettings.defaultRepo || ''}
               onToggleFavorite={toggleFavoriteRepo}
             />
 
@@ -205,15 +253,16 @@ function AppInner() {
                   onRetry={retryItem}
                   onRetryAllFailed={retryAllFailed}
                   onReorder={reorderQueue}
+                  settings={effectiveSettings}
                 />
               </div>
             </div>
           </>
         )}
 
-        {activePage === 'browser' && <BrowserPage settings={settings} />}
-        {activePage === 'history' && <HistoryPage settings={settings} />}
-        {activePage === 'ldap'    && <LdapPage settings={settings} />}
+        {activePage === 'browser' && <BrowserPage settings={effectiveSettings} />}
+        {activePage === 'history' && <HistoryPage settings={effectiveSettings} />}
+        {activePage === 'ldap'    && <LdapPage settings={effectiveSettings} />}
 
         <footer className="mt-auto py-10 border-t border-slate-100 dark:border-dark-border flex justify-between items-center">
           <div className="flex items-center gap-4">
@@ -232,7 +281,7 @@ function AppInner() {
 
       {showSettings && (
         <SettingsModal
-          settings={settings}
+          settings={effectiveSettings}
           onSave={handleSaveSettings}
           onClose={() => setShowSettings(false)}
         />
