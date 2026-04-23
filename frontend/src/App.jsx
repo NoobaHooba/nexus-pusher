@@ -267,17 +267,24 @@ function AppInner() {
         {activePage === 'history' && <HistoryPage settings={effectiveSettings} />}
         {activePage === 'ldap'    && <LdapPage settings={effectiveSettings} />}
 
-        <footer className="mt-auto py-10 border-t border-slate-100 dark:border-dark-border flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <img src={NEXUS_LOGO} alt="" className="w-5 h-5 grayscale opacity-20" />
-            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-300 dark:text-dark-text-faint">
-              &copy; {new Date().getFullYear()} Nexus Pusher. Architectural Precision.
-            </p>
-          </div>
-          <div className="flex gap-10">
-            <a href="#" className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 dark:text-dark-text-faint hover:text-accent transition-colors">Security</a>
-            <a href="#" className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 dark:text-dark-text-faint hover:text-accent transition-colors">Privacy</a>
-            <a href="#" className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 dark:text-dark-text-faint hover:text-accent">System Status</a>
+        <footer className="mt-auto pt-6">
+          <div className="flex items-center justify-between gap-4 rounded-3xl border border-slate-200/80 dark:border-dark-border bg-white/80 dark:bg-dark-surface/80 px-6 py-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] backdrop-blur-xl">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-accent/15 via-emerald-100 to-sky-100 dark:from-dark-accent-dim dark:via-emerald-900/30 dark:to-sky-900/30 ring-1 ring-accent/10 dark:ring-white/5">
+                <img src={NEXUS_LOGO} alt="" className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold tracking-tight text-primary dark:text-dark-text">
+                  Built with love <span className="text-slate-400 dark:text-dark-text-faint">(and AI)</span> by Platform
+                </p>
+                <p className="text-xs text-on-surface-variant dark:text-dark-text-muted">
+                  Making Nexus a little less annoying, one upload at a time.
+                </p>
+              </div>
+            </div>
+            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100 via-orange-50 to-rose-100 text-xl shadow-inner shadow-white/50 dark:from-amber-900/30 dark:via-orange-900/20 dark:to-rose-900/30" aria-hidden="true">
+              👋
+            </div>
           </div>
         </footer>
       </main>
