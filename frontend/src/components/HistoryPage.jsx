@@ -48,6 +48,7 @@ const STAT_CARDS = [
 ];
 
 const PAGE_SIZE = 50;
+const HISTORY_STATE_KEY = 'nexus-pusher-history-state';
 
 function formatSize(bytes) {
   if (bytes == null || bytes === '') return '\u2014';
@@ -86,23 +87,53 @@ function exportCsv(rows, settings) {
   a.click();
 }
 
+function loadHistoryState() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(HISTORY_STATE_KEY) || '{}');
+    return {
+      search: stored?.search || '',
+      filterStatus: ['all', 'success', 'error', 'warning'].includes(stored?.filterStatus) ? stored.filterStatus : 'all',
+      filterType: ['all', 'maven', 'npm', 'pypi', 'docker', 'nuget', 'helm', 'yum', 'apt', 'raw'].includes(stored?.filterType) ? stored.filterType : 'all',
+      offset: Number.isFinite(Number(stored?.offset)) ? Math.max(0, Number(stored.offset)) : 0,
+    };
+  } catch {
+    return {
+      search: '',
+      filterStatus: 'all',
+      filterType: 'all',
+      offset: 0,
+    };
+  }
+}
+
+function saveHistoryState(state) {
+  try {
+    localStorage.setItem(HISTORY_STATE_KEY, JSON.stringify(state));
+  } catch (_) {
+    // ignore storage failures
+  }
+}
+
 export default function HistoryPage({ settings }) {
+  const initialStateRef = useRef(null);
+  if (!initialStateRef.current) initialStateRef.current = loadHistoryState();
+  const initialState = initialStateRef.current;
   const [rows,   setRows]   = useState([]);
   const [total,  setTotal]  = useState(0);
   const [loading, setLoading] = useState(false);
   const [error,  setError]  = useState(null);
 
-  const [search,       setSearch]       = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterType,   setFilterType]   = useState('all');
-  const [offset,       setOffset]       = useState(0);
+  const [search,       setSearch]       = useState(initialState.search);
+  const [filterStatus, setFilterStatus] = useState(initialState.filterStatus);
+  const [filterType,   setFilterType]   = useState(initialState.filterType);
+  const [offset,       setOffset]       = useState(initialState.offset);
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing,         setClearing]         = useState(false);
 
   // debounce search input
   const searchTimer = useRef(null);
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState(initialState.search);
   useEffect(() => {
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => {
@@ -128,6 +159,14 @@ export default function HistoryPage({ settings }) {
       const res  = await fetch(apiUrl(settings, `/api/history?${params}`));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      if ((data.total ?? 0) === 0 && offset !== 0) {
+        setOffset(0);
+        return;
+      }
+      if ((data.total ?? 0) > 0 && offset >= (data.total ?? 0)) {
+        setOffset(Math.max(0, Math.floor(((data.total ?? 0) - 1) / PAGE_SIZE) * PAGE_SIZE));
+        return;
+      }
       setRows(data.rows  ?? []);
       setTotal(data.total ?? 0);
     } catch (err) {
@@ -138,6 +177,10 @@ export default function HistoryPage({ settings }) {
   }, [debouncedSearch, filterStatus, filterType, offset, settings]);
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
+
+  useEffect(() => {
+    saveHistoryState({ search, filterStatus, filterType, offset });
+  }, [search, filterStatus, filterType, offset]);
 
   // re-fetch when the tab becomes visible (user switched away during an upload)
   useEffect(() => {

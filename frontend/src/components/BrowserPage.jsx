@@ -19,9 +19,11 @@ const FORMAT_COLORS = {
 
 const KNOWN_FORMATS = ['maven2','npm','docker','pypi','nuget','helm','yum','apt','raw'];
 const SEARCH_HISTORY_KEY = 'nexus-pusher-browser-search-history';
+const BROWSER_STATE_KEY = 'nexus-pusher-browser-state';
 const MAX_SEARCH_HISTORY = 6;
 const MAX_SUGGESTIONS = 8;
 const DEFAULT_SORT = { field: 'lastModified', direction: 'desc' };
+const SORT_FIELDS = ['asset', 'repository', 'format', 'size', 'lastModified'];
 
 function formatSize(bytes) {
   if (bytes == null) return '—';
@@ -65,6 +67,37 @@ function loadSearchHistory() {
 function saveSearchHistory(history) {
   try {
     localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history.slice(0, MAX_SEARCH_HISTORY)));
+  } catch (_) {
+    // ignore storage failures
+  }
+}
+
+function loadBrowserState() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(BROWSER_STATE_KEY) || '{}');
+    const sortField = SORT_FIELDS.includes(stored?.sortState?.field) ? stored.sortState.field : DEFAULT_SORT.field;
+    const sortDirection = stored?.sortState?.direction === 'asc' ? 'asc' : 'desc';
+    return {
+      selectedRepo: stored?.selectedRepo || '',
+      selectedFormat: stored?.selectedFormat || '',
+      inputValue: stored?.inputValue || '',
+      keyword: stored?.keyword || stored?.inputValue || '',
+      sortState: { field: sortField, direction: sortDirection },
+    };
+  } catch {
+    return {
+      selectedRepo: '',
+      selectedFormat: '',
+      inputValue: '',
+      keyword: '',
+      sortState: DEFAULT_SORT,
+    };
+  }
+}
+
+function saveBrowserState(state) {
+  try {
+    localStorage.setItem(BROWSER_STATE_KEY, JSON.stringify(state));
   } catch (_) {
     // ignore storage failures
   }
@@ -161,6 +194,7 @@ async function apiFetch(settings, path, body) {
 // ─── component ───────────────────────────────────────────────────────────────
 export default function BrowserPage({ settings }) {
   const { nexusUrl, username, password } = settings || {};
+  const initialState = useMemo(() => loadBrowserState(), []);
 
   // repos
   const [repos, setRepos]         = useState([]);
@@ -168,14 +202,14 @@ export default function BrowserPage({ settings }) {
   const [reposError, setReposError]     = useState(null);
 
   // filters
-  const [selectedRepo, setSelectedRepo] = useState('');
-  const [selectedFormat, setSelectedFormat] = useState('');
-  const [keyword, setKeyword]           = useState('');
-  const [inputValue, setInputValue]     = useState('');
+  const [selectedRepo, setSelectedRepo] = useState(initialState.selectedRepo);
+  const [selectedFormat, setSelectedFormat] = useState(initialState.selectedFormat);
+  const [keyword, setKeyword]           = useState(initialState.keyword);
+  const [inputValue, setInputValue]     = useState(initialState.inputValue);
   const [recentSearches, setRecentSearches] = useState(() => loadSearchHistory());
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
-  const [sortState, setSortState] = useState(DEFAULT_SORT);
+  const [sortState, setSortState] = useState(initialState.sortState);
   const debounceRef = useRef(null);
   const searchBoxRef = useRef(null);
 
@@ -327,6 +361,16 @@ export default function BrowserPage({ settings }) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    saveBrowserState({
+      selectedRepo,
+      selectedFormat,
+      inputValue,
+      keyword,
+      sortState,
+    });
+  }, [selectedRepo, selectedFormat, inputValue, keyword, sortState]);
 
   if (!nexusUrl) {
     return (

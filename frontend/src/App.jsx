@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Sidebar from './components/Sidebar';
-import RepoSelector from './components/RepoSelector';
+import RepoSelector, { REPO_TYPES } from './components/RepoSelector';
 import UploadZone from './components/UploadZone';
 import UploadQueue from './components/UploadQueue';
 import UploadSummary from './components/UploadSummary';
@@ -22,6 +22,9 @@ const NEXUS_LOGO = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'
 const SETTINGS_KEY   = 'nexus-pusher-settings';
 const REPO_NAMES_KEY = 'nexus-pusher-repo-names';
 const THEME_KEY      = 'nexus-pusher-theme';
+const APP_UI_KEY     = 'nexus-pusher-app-ui';
+const VALID_PAGES    = ['upload', 'browser', 'history', 'ldap'];
+const DEFAULT_REPO   = 'npm';
 
 function loadFromStorage(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) || fallback; }
@@ -36,10 +39,20 @@ function getInitialTheme() {
   } catch { return 'light'; }
 }
 
+function getInitialAppUi() {
+  const stored = loadFromStorage(APP_UI_KEY, {});
+  const validRepoIds = REPO_TYPES.map(({ id }) => id);
+  return {
+    activePage: VALID_PAGES.includes(stored?.activePage) ? stored.activePage : 'upload',
+    activeRepo: validRepoIds.includes(stored?.activeRepo) ? stored.activeRepo : DEFAULT_REPO,
+  };
+}
+
 function AppInner() {
   const toast = useToast();
-  const [activePage, setActivePage]     = useState('upload');
-  const [activeRepo, setActiveRepo]     = useState('npm');
+  const initialAppUi = useMemo(() => getInitialAppUi(), []);
+  const [activePage, setActivePage]     = useState(initialAppUi.activePage);
+  const [activeRepo, setActiveRepo]     = useState(initialAppUi.activeRepo);
   const [showSettings, setShowSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [theme, setTheme]               = useState(getInitialTheme);
@@ -66,6 +79,12 @@ function AppInner() {
     else root.classList.remove('dark');
     try { localStorage.setItem(THEME_KEY, theme); } catch (_) {}
   }, [theme]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(APP_UI_KEY, JSON.stringify({ activePage, activeRepo }));
+    } catch (_) {}
+  }, [activePage, activeRepo]);
 
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
 
