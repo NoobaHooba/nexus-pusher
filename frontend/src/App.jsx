@@ -267,22 +267,20 @@ function AppInner() {
         {activePage === 'history' && <HistoryPage settings={effectiveSettings} />}
         {activePage === 'ldap'    && <LdapPage settings={effectiveSettings} />}
 
-        <footer className="mt-auto pt-6">
-          <div className="flex items-center justify-between gap-4 rounded-3xl border border-slate-200/80 dark:border-dark-border bg-white/80 dark:bg-dark-surface/80 px-6 py-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] backdrop-blur-xl">
-            <div className="flex items-center gap-4 min-w-0">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-accent/15 via-emerald-100 to-sky-100 dark:from-dark-accent-dim dark:via-emerald-900/30 dark:to-sky-900/30 ring-1 ring-accent/10 dark:ring-white/5">
-                <img src={NEXUS_LOGO} alt="" className="w-6 h-6" />
-              </div>
+        <footer className="mt-auto pt-8 border-t border-slate-200/80 dark:border-dark-border/80">
+          <div className="flex items-center justify-between gap-4 py-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <img src={NEXUS_LOGO} alt="" className="w-5 h-5 opacity-70" />
               <div className="min-w-0">
-                <p className="text-sm font-semibold tracking-tight text-primary dark:text-dark-text">
+                <p className="text-sm font-medium tracking-tight text-on-surface-variant dark:text-dark-text-muted">
                   Built with love <span className="text-slate-400 dark:text-dark-text-faint">(and AI)</span> by Platform
                 </p>
-                <p className="text-xs text-on-surface-variant dark:text-dark-text-muted">
-                  Making Nexus a little less annoying, one upload at a time.
+                <p className="text-xs text-slate-400 dark:text-dark-text-faint">
+                  Making Nexus a little less annoying.
                 </p>
               </div>
             </div>
-            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100 via-orange-50 to-rose-100 text-xl shadow-inner shadow-white/50 dark:from-amber-900/30 dark:via-orange-900/20 dark:to-rose-900/30" aria-hidden="true">
+            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-100/80 via-orange-50 to-rose-100/80 text-lg dark:from-amber-900/30 dark:via-orange-900/20 dark:to-rose-900/30" aria-hidden="true">
               👋
             </div>
           </div>
