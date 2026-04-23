@@ -54,6 +54,21 @@ function buildResultCoordinates(type, detected, extra) {
   return base;
 }
 
+function buildUploadExtra(type, detected, extra) {
+  if (type === 'maven') {
+    const coordinates = buildResultCoordinates(type, detected, extra);
+    return {
+      ...extra,
+      groupId: coordinates.groupId,
+      artifactId: coordinates.artifactId,
+      version: coordinates.version,
+      extension: coordinates.extension,
+      classifier: coordinates.classifier,
+    };
+  }
+  return extra;
+}
+
 router.post('/:type', upload.array('files'), async (req, res) => {
   const { type } = req.params;
   const uploader = uploaderMap[type];
@@ -87,7 +102,8 @@ router.post('/:type', upload.array('files'), async (req, res) => {
     try {
       const detectedResult = await detectArtifact(type, file, extra);
       const coordinates = buildResultCoordinates(type, detectedResult.detected, extra);
-      uploadPath = buildArtifactPath(type, file.originalname, extra, {
+      const uploadExtra = buildUploadExtra(type, detectedResult.detected, extra);
+      uploadPath = buildArtifactPath(type, file.originalname, uploadExtra, {
         ...detectedResult.detected,
         coordinates,
       });
@@ -95,7 +111,7 @@ router.post('/:type', upload.array('files'), async (req, res) => {
       packageName = coordinates.packageName || coordinates.chartName || detectedResult.detected.name || '';
       artifactId = coordinates.artifactId || '';
 
-      const result = await uploader.upload({ file, nexusUrl, repo, username, password, extra });
+      const result = await uploader.upload({ file, nexusUrl, repo, username, password, extra: uploadExtra });
       uploadStatus = 'success';
       resultUrl = result?.downloadUrl || result?.url || result?.nexusUiUrl || '';
       results.push({

@@ -71,6 +71,18 @@ function mergeRecent(list, value) {
   return [value, ...list.filter((item) => item !== value)].slice(0, 5);
 }
 
+function mergeDetectedExtra(repoType, extraFields = {}, detected = {}) {
+  if (repoType !== 'maven') return { ...extraFields };
+  const coordinates = detected?.coordinates || {};
+  return {
+    groupId: coordinates.groupId || extraFields.groupId || '',
+    artifactId: coordinates.artifactId || extraFields.artifactId || '',
+    version: coordinates.version || extraFields.version || '',
+    extension: coordinates.extension || extraFields.extension || detected?.extension || '',
+    classifier: coordinates.classifier || extraFields.classifier || '',
+  };
+}
+
 function extractSummary(item) {
   return {
     id: item.id,
@@ -181,6 +193,7 @@ export function useUpload(settings, repoType, repoName, toast) {
 
       setStaged((current) => current.map((entry) => {
         if (entry.id !== item.id) return entry;
+        const mergedExtraFields = mergeDetectedExtra(repoType, extraFields, response.detected);
         const next = {
           ...entry,
           inspecting: false,
@@ -192,7 +205,7 @@ export function useUpload(settings, repoType, repoName, toast) {
           repoSuggestions: response.repoSuggestions || [],
           duplicateCheck: response.duplicateCheck || { exists: false, matches: [] },
           selectedRepo: response.selectedRepo || selectedRepo || '',
-          extraFields,
+          extraFields: mergedExtraFields,
         };
         return { ...next, reviewStatus: buildReviewStatus(next) };
       }));
@@ -352,7 +365,7 @@ export function useUpload(settings, repoType, repoName, toast) {
               username: item.settings.username,
               password: item.settings.password,
               file: item.file,
-              extra: item.extraFields,
+              extra: mergeDetectedExtra(item.repoType, item.extraFields, { coordinates: item.coordinates }),
               settings: item.settings,
               onProgress: (pct) => updateQueueItem(item.id, { progress: pct }),
             });
@@ -432,6 +445,7 @@ export function useUpload(settings, repoType, repoName, toast) {
         repoName: item.selectedRepo,
         settings: { ...settings },
         coordinates: item.detected?.coordinates || {},
+        extraFields: mergeDetectedExtra(item.repoType, item.extraFields, item.detected),
         path: item.detected?.path || '',
       }));
 
