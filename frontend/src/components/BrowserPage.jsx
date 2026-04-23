@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiUrl } from '../lib/backendApi';
 import { buildNexusBrowseUrl, rewriteNexusAssetUrls, rewriteNexusUrl } from '../lib/nexusLinks';
 
@@ -21,6 +21,7 @@ const KNOWN_FORMATS = ['maven2','npm','docker','pypi','nuget','helm','yum','apt'
 const SEARCH_HISTORY_KEY = 'nexus-pusher-browser-search-history';
 const MAX_SEARCH_HISTORY = 6;
 const MAX_SUGGESTIONS = 8;
+const DEFAULT_SORT = { field: 'lastModified', direction: 'desc' };
 
 function formatSize(bytes) {
   if (bytes == null) return '—';
@@ -106,6 +107,45 @@ function buildSearchSuggestions(inputValue, recentSearches, results) {
   return suggestions.slice(0, MAX_SUGGESTIONS);
 }
 
+function getAssetDisplayName(asset) {
+  return asset?.path?.split('/').pop() || asset?.name || asset?.id || '';
+}
+
+function getSortValue(asset, field) {
+  switch (field) {
+    case 'asset':
+      return getAssetDisplayName(asset).toLowerCase();
+    case 'repository':
+      return String(asset?.repository || '').toLowerCase();
+    case 'format':
+      return String(asset?.format || '').toLowerCase();
+    case 'size':
+      return Number(asset?.fileSize || 0);
+    case 'lastModified':
+      return new Date(asset?.lastModified || asset?.blobCreated || 0).getTime();
+    default:
+      return '';
+  }
+}
+
+function compareAssets(a, b, field, direction) {
+  const left = getSortValue(a, field);
+  const right = getSortValue(b, field);
+  let result = 0;
+
+  if (typeof left === 'number' && typeof right === 'number') {
+    result = left - right;
+  } else {
+    result = String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  if (result === 0) {
+    result = getAssetDisplayName(a).localeCompare(getAssetDisplayName(b), undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  return direction === 'asc' ? result : -result;
+}
+
 // ─── api helpers ─────────────────────────────────────────────────────────────
 async function apiFetch(settings, path, body) {
   const res = await fetch(apiUrl(settings, path), {
@@ -135,6 +175,7 @@ export default function BrowserPage({ settings }) {
   const [recentSearches, setRecentSearches] = useState(() => loadSearchHistory());
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
+  const [sortState, setSortState] = useState(DEFAULT_SORT);
   const debounceRef = useRef(null);
   const searchBoxRef = useRef(null);
 
@@ -239,6 +280,41 @@ export default function BrowserPage({ settings }) {
   // ── derived ───────────────────────────────────────────────────────────────
   const availableFormats = [...new Set(repos.map(r => r.format).filter(Boolean))].sort();
   const searchSuggestions = buildSearchSuggestions(inputValue, recentSearches, results);
+  const sortedResults = useMemo(() => (
+    [...results].sort((a, b) => compareAssets(a, b, sortState.field, sortState.direction))
+  ), [results, sortState]);
+
+  const toggleSort = useCallback((field) => {
+    setSortState((current) => (
+      current.field === field
+        ? { field, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+        : { field, direction: field === 'lastModified' ? 'desc' : 'asc' }
+    ));
+  }, []);
+
+  const renderSortHeader = (label, field) => {
+    const isActive = sortState.field === field;
+    return (
+      <button
+        onClick={() => toggleSort(field)}
+        className={`inline-flex items-center gap-1.5 transition-colors ${
+          isActive
+            ? 'text-primary dark:text-dark-text'
+            : 'text-on-surface-variant dark:text-dark-text-muted hover:text-primary dark:hover:text-dark-text'
+        }`}
+      >
+        <span>{label}</span>
+        <span className="inline-flex flex-col leading-none">
+          <span className={`material-symbols-outlined text-[14px] -mb-1 ${isActive && sortState.direction === 'asc' ? 'text-accent dark:text-dark-accent' : 'text-slate-300 dark:text-dark-text-faint'}`}>
+            arrow_drop_up
+          </span>
+          <span className={`material-symbols-outlined text-[14px] -mt-1 ${isActive && sortState.direction === 'desc' ? 'text-accent dark:text-dark-accent' : 'text-slate-300 dark:text-dark-text-faint'}`}>
+            arrow_drop_down
+          </span>
+        </span>
+      </button>
+    );
+  };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -482,17 +558,17 @@ export default function BrowserPage({ settings }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 dark:border-dark-border bg-slate-50/60 dark:bg-dark-surface-2">
-                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Asset</th>
-                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Repository</th>
-                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Format</th>
-                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Size</th>
-                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Last Modified</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Asset', 'asset')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Repository', 'repository')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Format', 'format')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Size', 'size')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Last Modified', 'lastModified')}</th>
                     <th className="px-4 py-3"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {results.map((asset, i) => {
-                    const name = asset.path?.split('/').pop() || asset.id || '—';
+                  {sortedResults.map((asset, i) => {
+                    const name = getAssetDisplayName(asset) || '—';
                     const icon = fileIcon(asset.path || '');
                     const fmtColor = FORMAT_COLORS[asset.format] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
                     return (
