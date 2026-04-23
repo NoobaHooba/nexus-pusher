@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import RepoSelector from './components/RepoSelector';
 import UploadZone from './components/UploadZone';
@@ -54,7 +54,10 @@ function AppInner() {
   const [reposLoading, setReposLoading] = useState(false);
   const [reposError, setReposError] = useState('');
 
-  const effectiveSettings = { ...runtimeConfig, ...settings };
+  const effectiveSettings = useMemo(
+    () => ({ ...runtimeConfig, ...settings }),
+    [runtimeConfig, settings]
+  );
   const repoName = repoNames[activeRepo] || '';
 
   useEffect(() => {
@@ -224,7 +227,7 @@ function AppInner() {
                   onFiles={stageFiles}
                   repoType={activeRepo}
                   stagedCount={staged.length}
-                  settings={settings}
+                  settings={effectiveSettings}
                 />
                 <PreflightReview
                   items={staged}
