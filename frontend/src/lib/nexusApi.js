@@ -8,6 +8,18 @@
  */
 import { apiUrl } from './backendApi';
 
+export async function fetchRepositories({ nexusUrl, username, password, settings }) {
+  const res = await fetch(apiUrl(settings, '/api/browse/repos'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nexusUrl, username, password }),
+  });
+
+  const json = await res.json().catch(() => []);
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return Array.isArray(json) ? json : [];
+}
+
 async function backendUpload({ type, nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
   const fd = new FormData();
   fd.append('files', file, file.name);

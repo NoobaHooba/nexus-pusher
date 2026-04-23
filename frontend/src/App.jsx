@@ -13,6 +13,7 @@ import ToastContainer from './components/ToastContainer';
 import { ToastProvider, useToast } from './hooks/useToast';
 import { useUpload } from './hooks/useUpload';
 import { useDocumentTitle } from './hooks/useDocumentTitle';
+import { fetchRepositories } from './lib/nexusApi';
 
 const NEXUS_LOGO = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2301696f'/%3E%3Cpath d='M9 22 L16 10 L23 22' stroke='white' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath d='M12 18 L16 10 L20 18' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' fill='white' fill-opacity='0.25'/%3E%3C/svg%3E";
 
@@ -46,6 +47,9 @@ function AppInner() {
     loadFromStorage(REPO_NAMES_KEY, {})
   );
   const [extraFields, setExtraFields] = useState({});
+  const [availableRepos, setAvailableRepos] = useState([]);
+  const [reposLoading, setReposLoading] = useState(false);
+  const [reposError, setReposError] = useState('');
 
   const repoName = repoNames[activeRepo] || '';
 
@@ -73,6 +77,38 @@ function AppInner() {
   useEffect(() => {
     if (!settings.nexusUrl) setShowSettings(true);
   }, []);
+
+  useEffect(() => {
+    const { nexusUrl, username, password } = settings || {};
+    if (!nexusUrl) {
+      setAvailableRepos([]);
+      setReposError('');
+      setReposLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setReposLoading(true);
+
+    fetchRepositories({ nexusUrl, username, password, settings })
+      .then((repos) => {
+        if (cancelled) return;
+        setAvailableRepos(repos);
+        setReposError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setAvailableRepos([]);
+        setReposError(err.message || 'Could not load repositories');
+      })
+      .finally(() => {
+        if (!cancelled) setReposLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [settings]);
 
   const handleSaveSettings = (s) => {
     setSettings(s);
@@ -116,6 +152,9 @@ function AppInner() {
               onChange={setActiveRepo}
               repoNames={repoNames}
               onRepoNameChange={handleRepoNameChange}
+              availableRepos={availableRepos}
+              reposLoading={reposLoading}
+              reposError={reposError}
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">

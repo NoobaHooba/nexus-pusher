@@ -12,7 +12,30 @@ export const REPO_TYPES = [
   { id: 'raw',    label: 'Raw',    icon: 'folder_zip',    placeholder: 'e.g. raw-assets' },
 ];
 
-export default function RepoSelector({ active, onChange, repoNames, onRepoNameChange }) {
+const FORMAT_ALIASES = {
+  maven: 'maven2',
+};
+
+function getRepoFormat(type) {
+  return FORMAT_ALIASES[type] || type;
+}
+
+export default function RepoSelector({
+  active,
+  onChange,
+  repoNames,
+  onRepoNameChange,
+  availableRepos = [],
+  reposLoading = false,
+  reposError = '',
+}) {
+  const filteredRepos = active
+    ? availableRepos
+        .filter(repo => repo?.format === getRepoFormat(active) && repo?.type === 'hosted' && repo?.name)
+        .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+  const selectedRepoName = repoNames[active] || '';
+
   return (
     <section>
       <div className="flex items-center justify-between mb-8">
@@ -69,22 +92,51 @@ export default function RepoSelector({ active, onChange, repoNames, onRepoNameCh
           );
         }
         return (
-          <div className="mt-6 flex items-center gap-4 bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-2xl px-6 py-4 shadow-sm">
+          <div className="mt-6 flex items-start gap-4 bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-2xl px-6 py-4 shadow-sm">
             <span className="material-symbols-outlined text-accent dark:text-dark-accent text-[20px]">dns</span>
             <div className="flex flex-col gap-0.5 flex-1">
               <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">
-                {type.label} Repository Name
+                {type.label} Repository
               </label>
-              <input
-                type="text"
-                value={repoNames[active] || ''}
-                onChange={e => onRepoNameChange(active, e.target.value)}
-                placeholder={type.placeholder}
-                className="text-sm font-semibold text-primary dark:text-dark-text bg-transparent border-none outline-none placeholder:text-slate-300 dark:placeholder:text-dark-text-faint w-full"
-              />
+              {filteredRepos.length > 0 ? (
+                <>
+                  <select
+                    value={selectedRepoName}
+                    onChange={e => onRepoNameChange(active, e.target.value)}
+                    className="text-sm font-semibold text-primary dark:text-dark-text bg-transparent border-none outline-none w-full pr-8"
+                  >
+                    <option value="">Select a {type.label} repository</option>
+                    {filteredRepos.map((repo) => (
+                      <option key={repo.name} value={repo.name}>
+                        {repo.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-slate-400 dark:text-dark-text-faint mt-1">
+                    Showing hosted {type.label.toLowerCase()} repositories from Nexus.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    value={selectedRepoName}
+                    onChange={e => onRepoNameChange(active, e.target.value)}
+                    placeholder={type.placeholder}
+                    className="text-sm font-semibold text-primary dark:text-dark-text bg-transparent border-none outline-none placeholder:text-slate-300 dark:placeholder:text-dark-text-faint w-full"
+                  />
+                  <p className="text-[11px] text-slate-400 dark:text-dark-text-faint mt-1">
+                    {reposLoading
+                      ? 'Loading repositories from Nexus…'
+                      : reposError
+                        ? 'Repository list unavailable. Enter the repo name manually.'
+                        : `No hosted ${type.label.toLowerCase()} repositories found. Enter the repo name manually.`}
+                  </p>
+                </>
+              )}
             </div>
             <span className="text-[10px] font-medium text-slate-300 dark:text-dark-text-faint whitespace-nowrap">
-              Nexus repo name
+              {filteredRepos.length > 0 ? `${filteredRepos.length} available` : 'Manual fallback'}
             </span>
           </div>
         );
