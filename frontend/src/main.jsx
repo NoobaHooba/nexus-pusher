@@ -3,14 +3,13 @@ import ReactDOM from 'react-dom/client';
 import '@fontsource/manrope';
 import '@fontsource/material-symbols-outlined';
 import App from './App';
+import { getInitialTheme } from './app/storage';
 import './index.css';
 
 // Apply dark class before first render to avoid flash
 (function () {
   try {
-    const stored = localStorage.getItem('nexus-pusher-theme');
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (stored === 'dark' || (!stored && prefersDark)) {
+    if (getInitialTheme() === 'dark') {
       document.documentElement.classList.add('dark');
     }
   } catch (_) {}

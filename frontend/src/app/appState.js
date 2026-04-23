@@ -1,0 +1,97 @@
+import { useEffect, useMemo, useState } from 'react';
+import { REPO_TYPES } from '../features/upload/components/RepoSelector';
+import {
+  clearLoginSettings,
+  getInitialAppUi,
+  getInitialTheme,
+  loadLoginSettings,
+  loadRepoNames,
+  saveAppUi,
+  saveLoginSettings,
+  saveRepoNames,
+  saveTheme,
+} from './storage';
+import { DEFAULT_RUNTIME_CONFIG, fetchRuntimeConfig } from './runtimeConfig';
+
+export function useAppShellState() {
+  const validRepoIds = useMemo(() => REPO_TYPES.map(({ id }) => id), []);
+  const initialAppUi = useMemo(() => getInitialAppUi(validRepoIds), [validRepoIds]);
+
+  const [activePage, setActivePage] = useState(initialAppUi.activePage);
+  const [activeRepo, setActiveRepo] = useState(initialAppUi.activeRepo);
+  const [theme, setTheme] = useState(getInitialTheme);
+  const [runtimeConfig, setRuntimeConfig] = useState(DEFAULT_RUNTIME_CONFIG);
+  const [settings, setSettings] = useState(() => loadLoginSettings());
+  const [repoNames, setRepoNames] = useState(() => loadRepoNames());
+  const [showSettings, setShowSettings] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') root.classList.add('dark');
+    else root.classList.remove('dark');
+    saveTheme(theme);
+  }, [theme]);
+
+  useEffect(() => {
+    saveAppUi({ activePage, activeRepo });
+  }, [activePage, activeRepo]);
+
+  useEffect(() => {
+    fetchRuntimeConfig().then(setRuntimeConfig);
+  }, []);
+
+  useEffect(() => {
+    if (runtimeConfig.nexusUrl && !settings.username) setShowSettings(true);
+  }, [runtimeConfig.nexusUrl, settings.username]);
+
+  const effectiveSettings = useMemo(
+    () => ({ ...runtimeConfig, ...settings }),
+    [runtimeConfig, settings]
+  );
+
+  const toggleTheme = () => setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
+
+  const saveSettings = (nextSettings) => {
+    const next = { username: nextSettings.username || '', password: nextSettings.password || '' };
+    setSettings(next);
+    saveLoginSettings(next);
+    setShowSettings(false);
+    setShowUserMenu(false);
+  };
+
+  const logout = () => {
+    const next = { username: '', password: '' };
+    setSettings(next);
+    clearLoginSettings();
+    setShowUserMenu(false);
+  };
+
+  const updateRepoName = (type, name) => {
+    setRepoNames((current) => {
+      const next = { ...current, [type]: name };
+      saveRepoNames(next);
+      return next;
+    });
+  };
+
+  return {
+    activePage,
+    setActivePage,
+    activeRepo,
+    setActiveRepo,
+    theme,
+    toggleTheme,
+    runtimeConfig,
+    settings,
+    effectiveSettings,
+    repoNames,
+    updateRepoName,
+    showSettings,
+    setShowSettings,
+    showUserMenu,
+    setShowUserMenu,
+    saveSettings,
+    logout,
+  };
+}

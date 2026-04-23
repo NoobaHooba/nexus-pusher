@@ -1,157 +1,330 @@
 # Nexus Pusher
 
-A web UI and backend API for uploading artifacts into Sonatype Nexus Repository Manager.
+Nexus Pusher is a developer-focused UI for publishing artifacts to Sonatype Nexus Repository Manager with less manual typing and less Nexus navigation overhead.
 
-## Architecture
+It keeps the deployer-owned infrastructure concerns on the server side and keeps the user-owned login and workflow preferences in the browser. The product goal is simple: pick a format, drop files, review inferred metadata, and publish.
 
-- `frontend/`: React + Vite single-page app
-- `backend/`: Express API used for uploads, browse, history, validation, and LDAP/access views
-- `frontend/dist/`: static bundle that can be served by your own nginx in closed networks
-- `backend/node_modules/` and `frontend/node_modules/`: vendored by the air-gap prep script for offline builds
+## What Problem This Solves
 
-By default the frontend talks to the backend through relative `/api`. If your nginx does not proxy `/api`, set `Backend URL` in the app settings or provide `VITE_BACKEND_URL` at build time so the browser can call the backend directly.
+Nexus is powerful, but routine uploads are noisy:
+
+- Maven coordinates often have to be typed manually.
+- Repository selection is repetitive.
+- Duplicate checks are easy to miss.
+- Browser links frequently need internal Nexus knowledge.
+
+This app wraps those tasks in a guided upload flow with preflight inspection, repository suggestions, upload history, search, and Nexus browse links.
+
+## Current Product Model
+
+- Primary audience: developers uploading artifacts
+- Usage model: personal browser session
+- Deployer-managed config:
+  - Nexus API base URL
+  - Nexus browser URL
+  - backend host and proxying
+  - persistent history volume
+- User-managed state:
+  - Nexus username
+  - Nexus password
+  - selected page and upload format
+  - recent repositories, favorites, search state, and upload preferences
+
+## Repo Layout
+
+```text
+.
+├── README.md
+├── docker-compose.yml
+├── airgap/
+├── backend/
+│   └── src/
+│       ├── app/
+│       ├── features/
+│       │   ├── browse/
+│       │   ├── health/
+│       │   ├── history/
+│       │   ├── ldap/
+│       │   ├── preflight/
+│       │   ├── runtime-config/
+│       │   ├── upload/
+│       │   └── validate/
+│       └── shared/
+│           ├── artifacts/
+│           ├── http/
+│           ├── nexus/
+│           └── persistence/
+├── frontend/
+│   └── src/
+│       ├── app/
+│       ├── features/
+│       │   ├── browser/
+│       │   ├── history/
+│       │   ├── ldap/
+│       │   └── upload/
+│       └── shared/
+│           ├── components/
+│           ├── hooks/
+│           └── lib/
+├── openshift/
+├── proxy/
+└── scripts/
+```
+
+### Folder ownership
+
+- `frontend/src/app`: app shell state, runtime config loading, login state, top-level layout
+- `frontend/src/features/*`: feature-owned pages, storage, and hooks
+- `frontend/src/shared/*`: reusable UI, hooks, and API helpers
+- `backend/src/app`: backend bootstrap and config
+- `backend/src/features/*`: route-owned API surfaces and feature services
+- `backend/src/shared/*`: Nexus HTTP helpers, artifact inspection, SQLite persistence
 
 ## Supported Repository Types
 
-| Type   | Flow |
-|--------|------|
-| Maven  | Browser upload |
-| NPM    | Browser upload |
-| NuGet  | Browser upload |
-| PyPI   | Browser upload |
-| Yum    | Browser upload |
-| Apt    | Browser upload |
-| Helm   | Browser upload |
-| Raw    | Browser upload |
+| Type | Upload path |
+| --- | --- |
+| Maven | Browser upload with inferred coordinates |
+| NPM | Browser upload with tarball metadata inspection |
+| NuGet | Browser upload with `.nuspec` inspection |
+| PyPI | Browser upload with filename-based package inference |
+| Helm | Browser upload with `Chart.yaml` inspection |
+| Yum | Browser upload |
+| Apt | Browser upload |
+| Raw | Browser upload |
 | Docker | CLI push only |
 
-Docker images are not uploaded through the browser UI in this deployment model. Use:
+Docker is intentionally not uploaded from the browser UI. The app only gives guidance for Docker registry usage.
 
-```bash
-docker push <image>:<tag>
+## Upload Flow
+
+The current upload flow is preflight-driven:
+
+1. Select a repository format.
+2. Drop one or more files.
+3. The backend inspects each file and infers metadata where possible.
+4. The UI shows detected fields, missing fields, duplicate warnings, and ranked repository suggestions.
+5. The user confirms only the missing or overridden values.
+6. The backend uploads and returns normalized results with Nexus browse links.
+
+## Browser-Stored User State
+
+The browser stores:
+
+- login username and password
+- theme
+- active page
+- active upload format
+- repo names per format
+- upload favorites and recent repos
+- upload history shortcuts
+- browser search, filters, sort state, and recent searches
+- history page filters and pagination state
+
+This state lives in `localStorage`. It is intentionally browser-local and is not shared between users.
+
+## Runtime Configuration Model
+
+### Deployer-managed environment
+
+The backend exposes runtime config to the frontend from `/api/runtime-config`.
+
+Important environment variables:
+
+- `PORT`: backend listen port, default `3001`
+- `DATA_DIR`: directory for SQLite upload history
+- `NEXUS_URL`: Nexus API URL reachable from the backend
+- `NEXUS_BROWSER_URL`: Nexus URL reachable from the user’s browser
+- `DOCKER_REGISTRY`: optional Docker registry hint shown in the UI
+
+Typical container values:
+
+```env
+PORT=3001
+DATA_DIR=/app/data
+NEXUS_URL=http://nexus:8081
+NEXUS_BROWSER_URL=http://localhost:8081
 ```
 
-## Local Docker Compose
+### User-managed login
+
+Users only provide:
+
+- `username`
+- `password`
+
+The user does not configure Nexus routing in the UI.
+
+## Local Development
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+For interactive development:
+
+```bash
+cd frontend
+npm run dev
+```
+
+### Backend
+
+```bash
+cd backend
+npm install
+npm start
+```
+
+Useful local env overrides:
+
+```bash
+PORT=3001
+DATA_DIR=./data-local
+NEXUS_URL=http://localhost:8081
+NEXUS_BROWSER_URL=http://localhost:8081
+```
+
+In non-production mode, the backend falls back to `backend/data/` if `DATA_DIR` is unset.
+
+## Docker Compose Workflow
+
+Bring up the stack:
 
 ```bash
 docker compose up --build
 ```
 
-Services:
+Current compose services:
 
 - frontend: `http://localhost:5173`
 - backend: `http://localhost:3001`
 
-The bundled frontend nginx proxies `/api` to the `nexus-backend` service name.
+The provided `docker-compose.yml` expects an external Docker network named `nexus-net`, so the backend can talk to an existing Nexus container or service on that network.
 
-## Air-Gap Preparation
+Example runtime values in compose:
 
-Run this on a connected machine before moving the project into the closed network:
+- backend talks to Nexus at `http://nexus:8081`
+- browser opens Nexus at `http://localhost:8081`
+
+## Deployment Notes
+
+- The backend is the source of truth for Nexus routing.
+- The browser should normally call the backend through relative `/api`.
+- If you serve the frontend from an external reverse proxy, proxy `/api` to the backend.
+- `NEXUS_URL` must be reachable from the backend container or pod.
+- `NEXUS_BROWSER_URL` must be reachable from the user’s browser.
+- Docker uploads remain CLI-only.
+
+### Optional frontend build-time override
+
+If your deployment cannot proxy `/api`, the frontend still supports `VITE_BACKEND_URL` at build time. That is a deployer concern, not a user-facing setting.
+
+## OpenShift Notes
+
+OpenShift manifests live under `openshift/`:
+
+- `openshift/full-stack.yaml`
+- `openshift/backend-only.yaml`
+- `openshift/README.md`
+
+Operational assumptions:
+
+- mount writable storage at `/app/data`
+- keep `DATA_DIR=/app/data`
+- expose frontend and backend through routes as needed
+- set `NEXUS_URL` and `NEXUS_BROWSER_URL` per environment
+
+## Air-Gap Workflow
+
+Artifacts for the disconnected workflow live under `airgap/`.
+
+Preparation script:
 
 ```bash
 ./scripts/prepare-airgap-bundle.sh
 ```
 
-Exact handoff checklists for your repo-build-in-closed-network flow live in:
+Reference checklists:
 
 - `airgap/CONNECTED_SIDE_CHECKLIST.md`
 - `airgap/CLOSED_SIDE_CHECKLIST.md`
 
-That script will:
+The script prepares offline-friendly assets, vendored dependencies, and transfer archives for closed-network builds.
 
-- build frontend and backend with online dependency install
-- vendor `frontend/node_modules` and `backend/node_modules`
-- copy generated `package-lock.json` files into both apps
-- build `frontend/dist`
-- create a transfer archive under `airgap/`
+## API Overview
 
-## Offline Builds
+Public API surfaces used by the frontend:
 
-After the vendored dependencies have been prepared, build with offline mode:
+- `POST /api/upload/:type`
+- `POST /api/preflight/:type`
+- `POST /api/browse/repos`
+- `POST /api/browse/search`
+- `POST /api/browse/asset`
+- `GET /api/history`
+- `DELETE /api/history`
+- `POST /api/ldap/info`
+- `POST /api/ldap/users`
+- `POST /api/validate`
+- `GET /api/health`
+- `GET /api/runtime-config`
+
+Removed legacy routes:
+
+- `/api/settings`
+- `/api/check-duplicate`
+
+Duplicate checks now live inside preflight instead of as a separate public endpoint.
+
+## Known Limitations
+
+- Docker image uploads are not handled in-browser.
+- Some package formats still rely on filename conventions when archive metadata is unavailable.
+- The app stores credentials in browser `localStorage` because the current model is a personal browser session.
+- LDAP views are still present but are not the primary product focus.
+- Backend startup requires the native `better-sqlite3` dependency to match the target runtime.
+
+## Troubleshooting
+
+### Search or history links open the wrong Nexus host
+
+Set `NEXUS_BROWSER_URL` to the browser-reachable Nexus address, for example:
+
+```env
+NEXUS_BROWSER_URL=http://localhost:8081
+```
+
+### Backend can’t reach Nexus but the browser can
+
+This usually means `NEXUS_URL` points to a browser hostname instead of a Docker or cluster-reachable hostname. Use the backend-reachable service name or internal route there.
+
+### Frontend build fails because of Rollup native dependency issues
+
+Install dependencies cleanly in the target environment and ensure the matching optional Rollup native package is available for that platform.
+
+### The UI behaves strangely after a refactor or deployment change
+
+Clear browser `localStorage` for the app origin and reload. The app now validates stored state more aggressively, but stale values can still survive across major changes.
+
+## Development Conventions
+
+- Keep frontend feature logic inside `frontend/src/features/<feature>`.
+- Keep shared frontend helpers under `frontend/src/shared`.
+- Keep backend routes thin and feature-owned.
+- Put backend cross-feature infrastructure under `backend/src/shared`.
+- Prefer backend-side artifact inspection over frontend-side parsing.
+- Centralize `localStorage` access in storage modules instead of ad hoc page code.
+- Remove dead code instead of leaving shadow components or unused routes behind.
+
+## Verification
+
+Useful checks after structural changes:
 
 ```bash
-docker build --build-arg INSTALL_MODE=offline -t nexus-pusher-backend ./backend
-docker build --build-arg INSTALL_MODE=offline -t nexus-pusher-frontend ./frontend
+cd frontend && npm run build
+cd ../backend && node -e "require('./src/app/createApp')"
 ```
-
-If you want a backend build path with no `apk add` line at all, use:
-
-```bash
-docker build -f backend/Dockerfile.offline -t nexus-pusher-backend ./backend
-```
-
-If you want the same style for the frontend, use:
-
-```bash
-docker build -f frontend/Dockerfile.offline -t nexus-pusher-frontend ./frontend
-```
-
-To bake a direct backend URL into the frontend bundle, add:
-
-```bash
-docker build -f frontend/Dockerfile.offline \
-  --build-arg VITE_BACKEND_URL=https://nexus-pusher-backend.apps.example.com \
-  -t nexus-pusher-frontend ./frontend
-```
-
-If you are serving the frontend with your own nginx, you only need:
-
-- the backend image
-- the `frontend/dist/` directory
-- `node:20-alpine` in the closed network if you plan to build the backend there
-
-## External nginx
-
-Your nginx can work in either mode:
-
-1. serve `frontend/dist/` as static files
-2. either proxy `/api` to `http://nexus-backend:3001`
-3. or leave nginx unchanged and set the app's `Backend URL` to an external backend route
-
-Example location block:
-
-```nginx
-location /api {
-    proxy_pass         http://nexus-backend:3001;
-    proxy_http_version 1.1;
-    proxy_set_header   Host              $host;
-    proxy_set_header   X-Real-IP         $remote_addr;
-    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-    proxy_request_buffering off;
-    proxy_buffering         off;
-    proxy_connect_timeout   10s;
-    proxy_send_timeout      600s;
-    proxy_read_timeout      600s;
-    client_max_body_size    1G;
-}
-```
-
-## OpenShift Notes
-
-- The backend expects writable storage at `/app/data` for the SQLite history database.
-- Mount your PVC there and keep `DATA_DIR=/app/data`.
-- The backend image permissions are set up for OpenShift-style random UIDs.
-- The bundled frontend image now listens on `8080` so it can run under OpenShift's random UID model.
-- Ready-to-apply manifests live under `openshift/`:
-  - `openshift/backend-only.yaml`
-  - `openshift/full-stack.yaml`
-- `openshift/backend-only.yaml` now also creates a backend `Route` for frontends hosted outside OpenShift.
-- In your environment, serving `frontend/dist/` from your own nginx is still a good path if you do not want the frontend running inside OpenShift.
-
-## Configuration
-
-Set these in the UI on first run:
-
-- Backend URL
-- Nexus URL
-- Username
-- Password
-
-Settings are stored in browser `localStorage`.
-
-## Closed-Network Runtime Assets
-
-The frontend no longer depends on Google-hosted runtime assets:
-
-- app logo is embedded locally
-- fonts/icons are bundled through npm and the built frontend assets
