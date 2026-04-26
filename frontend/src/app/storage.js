@@ -1,5 +1,6 @@
 const SETTINGS_KEY = 'nexus-pusher-settings';
 const REPO_NAMES_KEY = 'nexus-pusher-repo-names';
+const USER_UI_PREFS_KEY = 'nexus-pusher-user-ui-prefs';
 const THEME_KEY = 'nexus-pusher-theme';
 const APP_UI_KEY = 'nexus-pusher-app-ui';
 
@@ -92,4 +93,29 @@ export function loadScopedRepoNames(settings) {
 
 export function saveScopedRepoNames(repoNames, settings) {
   saveJson(getScopedStorageKey(REPO_NAMES_KEY, settings), repoNames);
+}
+
+export function getDefaultScopedUserUiPrefs() {
+  return {
+    denseMode: false,
+  };
+}
+
+export function normalizeScopedUserUiPrefs(stored = {}) {
+  return {
+    denseMode: stored?.denseMode === true,
+  };
+}
+
+export function loadScopedUserUiPrefs(settings) {
+  return normalizeScopedUserUiPrefs(
+    loadJson(getScopedStorageKey(USER_UI_PREFS_KEY, settings), getDefaultScopedUserUiPrefs())
+  );
+}
+
+export function saveScopedUserUiPrefs(prefs, settings) {
+  saveJson(
+    getScopedStorageKey(USER_UI_PREFS_KEY, settings),
+    normalizeScopedUserUiPrefs(prefs)
+  );
 }

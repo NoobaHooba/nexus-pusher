@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { REPO_TYPES } from '../features/upload/components/RepoSelector';
 import {
   clearLoginSettings,
@@ -7,9 +7,11 @@ import {
   getSettingsStorageScope,
   loadLoginSettings,
   loadScopedRepoNames,
+  loadScopedUserUiPrefs,
   saveAppUi,
   saveLoginSettings,
   saveScopedRepoNames,
+  saveScopedUserUiPrefs,
   saveTheme,
 } from './storage';
 import { DEFAULT_RUNTIME_CONFIG, fetchRuntimeConfig } from './runtimeConfig';
@@ -24,9 +26,11 @@ export function useAppShellState() {
   const [runtimeConfig, setRuntimeConfig] = useState(DEFAULT_RUNTIME_CONFIG);
   const [settings, setSettings] = useState(() => loadLoginSettings());
   const [repoNames, setRepoNames] = useState(() => loadScopedRepoNames(loadLoginSettings()));
+  const [userUiPrefs, setUserUiPrefs] = useState(() => loadScopedUserUiPrefs(loadLoginSettings()));
   const [showSettings, setShowSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const settingsScope = getSettingsStorageScope(settings);
+  const skipPersistUserUiPrefs = useRef(true);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -34,6 +38,11 @@ export function useAppShellState() {
     else root.classList.remove('dark');
     saveTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('dense-ui', userUiPrefs.denseMode === true);
+  }, [userUiPrefs.denseMode]);
 
   useEffect(() => {
     saveAppUi({ activePage, activeRepo });
@@ -48,6 +57,19 @@ export function useAppShellState() {
   }, [settingsScope]);
 
   useEffect(() => {
+    skipPersistUserUiPrefs.current = true;
+    setUserUiPrefs(loadScopedUserUiPrefs(settings));
+  }, [settingsScope]);
+
+  useEffect(() => {
+    if (skipPersistUserUiPrefs.current) {
+      skipPersistUserUiPrefs.current = false;
+      return;
+    }
+    saveScopedUserUiPrefs(userUiPrefs, settings);
+  }, [userUiPrefs, settingsScope]);
+
+  useEffect(() => {
     if (runtimeConfig.nexusUrl && !settings.username) setShowSettings(true);
   }, [runtimeConfig.nexusUrl, settings.username]);
 
@@ -60,6 +82,11 @@ export function useAppShellState() {
 
   const saveSettings = (nextSettings) => {
     const next = { username: nextSettings.username || '', password: nextSettings.password || '' };
+    const nextUserUiPrefs = {
+      denseMode: nextSettings.denseMode === true,
+    };
+    saveScopedUserUiPrefs(nextUserUiPrefs, next);
+    setUserUiPrefs(nextUserUiPrefs);
     setSettings(next);
     saveLoginSettings(next);
     setShowSettings(false);
@@ -87,6 +114,7 @@ export function useAppShellState() {
     activeRepo,
     setActiveRepo,
     theme,
+    denseMode: userUiPrefs.denseMode === true,
     toggleTheme,
     runtimeConfig,
     settings,

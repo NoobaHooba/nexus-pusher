@@ -195,7 +195,7 @@ export default function HistoryPage({ settings }) {
                            .reduce((a, r) => a + (r.size || 0), 0);
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="density-page flex flex-col gap-8">
 
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
@@ -259,7 +259,7 @@ export default function HistoryPage({ settings }) {
         {STAT_CARDS.map(({ key, icon, label, iconWrapClass, iconClass }) => {
           const value = key === 'success' ? successCount : key === 'error' ? errorCount : formatSize(totalBytes);
           return (
-            <div key={label} className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border p-5 flex items-center gap-4">
+            <div key={label} className="density-card bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border p-5 flex items-center gap-4">
               <div className={`w-10 h-10 rounded-xl ${iconWrapClass} flex items-center justify-center`}>
                 <span className={`material-symbols-outlined ${iconClass} text-[20px]`}>{icon}</span>
               </div>
@@ -339,7 +339,7 @@ export default function HistoryPage({ settings }) {
         </div>
       ) : (
         <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="density-table w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 dark:border-dark-border">
                 {['File', 'Size', 'Format', 'Repository', 'User', 'Status', 'Time'].map(h => (

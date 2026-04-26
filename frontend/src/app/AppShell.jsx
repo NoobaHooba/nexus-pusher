@@ -28,6 +28,7 @@ export default function AppShell() {
     activeRepo,
     setActiveRepo,
     theme,
+    denseMode,
     toggleTheme,
     effectiveSettings,
     repoNames,
@@ -93,7 +94,11 @@ export default function AppShell() {
 
   const handleSaveSettings = (nextSettings) => {
     saveSettings(nextSettings);
-    toast.success('Login saved & connection verified');
+    const credentialsChanged = (
+      (nextSettings.username || '') !== (effectiveSettings.username || '') ||
+      (nextSettings.password || '') !== (effectiveSettings.password || '')
+    );
+    toast.success(credentialsChanged ? 'Login saved & connection verified' : 'Settings saved');
   };
 
   const handleLogout = () => {
@@ -110,21 +115,22 @@ export default function AppShell() {
   };
 
   return (
-    <div className="bg-surface dark:bg-dark-bg text-on-surface dark:text-dark-text min-h-screen selection:bg-accent selection:text-white">
+    <div className={`bg-surface dark:bg-dark-bg text-on-surface dark:text-dark-text min-h-screen selection:bg-accent selection:text-white ${denseMode ? 'dense-ui' : ''}`}>
       <Sidebar
         nexusLogo={NEXUS_LOGO}
         activePage={activePage}
         onNavigate={setActivePage}
         settings={effectiveSettings}
         theme={theme}
+        denseMode={denseMode}
         onToggleTheme={toggleTheme}
       />
 
-      <main className="ml-64 p-10 flex flex-col gap-12 max-w-[1400px]">
+      <main className={`ml-64 flex flex-col max-w-[1400px] ${denseMode ? 'p-7 gap-8' : 'p-10 gap-12'}`}>
         <div className="flex justify-end relative">
           <button
             onClick={() => setShowUserMenu((open) => !open)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface text-sm font-bold text-primary dark:text-dark-text"
+            className={`inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface text-sm font-bold text-primary dark:text-dark-text ${denseMode ? 'px-3.5 py-2' : 'px-4 py-2.5'}`}
           >
             <span className="material-symbols-outlined text-[18px]">account_circle</span>
             {effectiveSettings.username || 'Login'}
@@ -153,8 +159,8 @@ export default function AppShell() {
         {activePage === 'upload' && (
           <>
             <section>
-              <h2 className="text-5xl font-extrabold tracking-tight text-primary dark:text-dark-text mb-4">Upload Assets</h2>
-              <p className="text-on-surface-variant dark:text-dark-text-muted text-lg max-w-2xl leading-relaxed">
+              <h2 className={`font-extrabold tracking-tight text-primary dark:text-dark-text ${denseMode ? 'text-4xl mb-3' : 'text-5xl mb-4'}`}>Upload Assets</h2>
+              <p className={`text-on-surface-variant dark:text-dark-text-muted max-w-2xl leading-relaxed ${denseMode ? 'text-base' : 'text-lg'}`}>
                 Push repository builds, container images, and binary artifacts to the Nexus network.
                 Select your target repository type and monitor deployment status.
               </p>
@@ -173,8 +179,8 @@ export default function AppShell() {
               onToggleFavorite={toggleFavoriteRepo}
             />
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-              <div className="lg:col-span-7 flex flex-col gap-10">
+            <div className={`grid grid-cols-1 lg:grid-cols-12 ${denseMode ? 'gap-8' : 'gap-12'}`}>
+              <div className={`lg:col-span-7 flex flex-col ${denseMode ? 'gap-7' : 'gap-10'}`}>
                 <UploadZone
                   onFiles={stageFiles}
                   repoType={activeRepo}
@@ -240,9 +246,10 @@ export default function AppShell() {
         </footer>
       </main>
 
-      {showSettings && (
+        {showSettings && (
         <SettingsModal
           settings={effectiveSettings}
+          denseMode={denseMode}
           onSave={handleSaveSettings}
           onClose={() => setShowSettings(false)}
         />

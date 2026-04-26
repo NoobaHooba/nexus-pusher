@@ -297,7 +297,7 @@ export default function BrowserPage({ settings }) {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="density-page flex flex-col gap-6">
       {/* Page header */}
       <div>
         <h2 className="text-4xl font-extrabold tracking-tight text-primary dark:text-dark-text">Repository Browser</h2>
@@ -531,7 +531,7 @@ export default function BrowserPage({ settings }) {
           {/* Results table */}
           {!loading && results.length > 0 && (
             <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
-              <table className="w-full text-sm">
+              <table className="density-table w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 dark:border-dark-border bg-slate-50/60 dark:bg-dark-surface-2">
                     <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Asset', 'asset')}</th>

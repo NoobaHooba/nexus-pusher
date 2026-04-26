@@ -6,6 +6,10 @@ body {
   font-family: 'Manrope', sans-serif;
 }
 
+html.dense-ui body {
+  font-size: 14px;
+}
+
 .material-symbols-outlined {
   font-family: 'Material Symbols Outlined';
   font-weight: normal;
@@ -38,4 +42,36 @@ body, aside, main, header, footer,
     background-color 200ms ease,
     border-color     200ms ease,
     color            200ms ease;
+}
+
+html.dense-ui .density-page {
+  gap: 1.5rem !important;
+}
+
+html.dense-ui .density-stack {
+  gap: 1rem !important;
+}
+
+html.dense-ui .density-card {
+  padding: 1rem !important;
+}
+
+html.dense-ui .density-table th,
+html.dense-ui .density-table td {
+  padding-top: 0.55rem !important;
+  padding-bottom: 0.55rem !important;
+}
+
+html.dense-ui .density-table tbody tr {
+  line-height: 1.15;
+}
+
+html.dense-ui input,
+html.dense-ui select,
+html.dense-ui textarea {
+  min-height: 2.25rem;
+}
+
+html.dense-ui .custom-scrollbar::-webkit-scrollbar {
+  width: 3px;
 }

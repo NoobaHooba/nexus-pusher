@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { apiUrl, getBackendBaseUrl } from '../lib/backendApi';
 
 const VALIDATE_TIMEOUT_MS = 15_000;
@@ -24,15 +24,20 @@ async function validateCredentials({ nexusUrl, username, password, backendUrl })
   }
 }
 
-export default function SettingsModal({ settings, onSave, onClose }) {
+export default function SettingsModal({ settings, denseMode, onSave, onClose }) {
   const [form, setForm] = useState({
     username: '',
     password: '',
+    denseMode: denseMode === true,
     backendUrl: getBackendBaseUrl(settings),
     ...settings,
   });
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState(null);
+  const currentCredentials = useMemo(() => ({
+    username: settings?.username || '',
+    password: settings?.password || '',
+  }), [settings?.username, settings?.password]);
 
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
@@ -44,6 +49,21 @@ export default function SettingsModal({ settings, onSave, onClose }) {
 
   const handleSave = async () => {
     setStatus(null);
+    const nextSettings = {
+      username: form.username || '',
+      password: form.password || '',
+      denseMode: form.denseMode === true,
+    };
+    const credentialsChanged = (
+      nextSettings.username !== currentCredentials.username ||
+      nextSettings.password !== currentCredentials.password
+    );
+
+    if (!credentialsChanged) {
+      onSave(nextSettings);
+      return;
+    }
+
     if (!settings?.nexusUrl?.trim()) {
       setStatus({ ok: false, message: 'Nexus is not configured for this deployment. Ask the deployer to set the backend runtime config.' });
       return;
@@ -57,7 +77,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     });
     setTesting(false);
     setStatus(result);
-    if (result.ok) onSave({ username: form.username || '', password: form.password || '' });
+    if (result.ok) onSave(nextSettings);
   };
 
   const handleBackdropClick = (e) => {
@@ -71,7 +91,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     >
       <div className="bg-white dark:bg-dark-surface rounded-3xl shadow-2xl w-full max-w-md p-8 flex flex-col gap-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-extrabold text-primary dark:text-dark-text">Login</h2>
+          <h2 className="text-xl font-extrabold text-primary dark:text-dark-text">Settings</h2>
           <button
             onClick={onClose}
             aria-label="Close login"
@@ -82,7 +102,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
         </div>
 
         <p className="text-sm text-on-surface-variant dark:text-dark-text-muted">
-          Enter your Nexus credentials. Repository endpoints are configured by the deployment, not by each user.
+          Manage your Nexus login and personal UI preferences. Repository endpoints are configured by the deployment, not by each user.
         </p>
 
         <div className="flex flex-col gap-4">
@@ -111,6 +131,33 @@ export default function SettingsModal({ settings, onSave, onClose }) {
               className="px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all"
             />
           </div>
+
+          <div className="rounded-2xl border border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface-2 px-4 py-3">
+            <label htmlFor="dense-mode" className="flex items-start justify-between gap-4 cursor-pointer">
+              <span className="flex flex-col gap-1">
+                <span className="text-sm font-semibold text-primary dark:text-dark-text">Dense View</span>
+                <span className="text-xs text-on-surface-variant dark:text-dark-text-muted">
+                  Tighten spacing across browse, history, and the rest of the app for a denser layout.
+                </span>
+              </span>
+              <span className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+                form.denseMode ? 'bg-accent dark:bg-dark-accent' : 'bg-slate-300 dark:bg-slate-600'
+              }`}>
+                <input
+                  id="dense-mode"
+                  type="checkbox"
+                  checked={form.denseMode === true}
+                  onChange={(e) => set('denseMode', e.target.checked)}
+                  className="sr-only"
+                />
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                    form.denseMode ? 'translate-x-5' : 'translate-x-0.5'
+                  }`}
+                />
+              </span>
+            </label>
+          </div>
         </div>
 
         {status && (
@@ -123,10 +170,14 @@ export default function SettingsModal({ settings, onSave, onClose }) {
           </div>
         )}
 
+        <p className="text-[11px] text-slate-400 dark:text-dark-text-faint">
+          Credentials are revalidated only when you change the username or password.
+        </p>
+
         <div className="flex gap-3 pt-2">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors">Cancel</button>
           <button onClick={handleSave} disabled={testing} className="flex-1 py-3 rounded-xl bg-primary dark:bg-dark-accent dark:text-dark-bg text-white text-sm font-bold hover:bg-black dark:hover:opacity-90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-            {testing ? 'Testing...' : 'Save Login'}
+            {testing ? 'Testing...' : 'Save Settings'}
           </button>
         </div>
       </div>
