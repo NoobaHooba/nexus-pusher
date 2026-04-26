@@ -4,11 +4,12 @@ import {
   clearLoginSettings,
   getInitialAppUi,
   getInitialTheme,
+  getSettingsStorageScope,
   loadLoginSettings,
-  loadRepoNames,
+  loadScopedRepoNames,
   saveAppUi,
   saveLoginSettings,
-  saveRepoNames,
+  saveScopedRepoNames,
   saveTheme,
 } from './storage';
 import { DEFAULT_RUNTIME_CONFIG, fetchRuntimeConfig } from './runtimeConfig';
@@ -22,9 +23,10 @@ export function useAppShellState() {
   const [theme, setTheme] = useState(getInitialTheme);
   const [runtimeConfig, setRuntimeConfig] = useState(DEFAULT_RUNTIME_CONFIG);
   const [settings, setSettings] = useState(() => loadLoginSettings());
-  const [repoNames, setRepoNames] = useState(() => loadRepoNames());
+  const [repoNames, setRepoNames] = useState(() => loadScopedRepoNames(loadLoginSettings()));
   const [showSettings, setShowSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const settingsScope = getSettingsStorageScope(settings);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -40,6 +42,10 @@ export function useAppShellState() {
   useEffect(() => {
     fetchRuntimeConfig().then(setRuntimeConfig);
   }, []);
+
+  useEffect(() => {
+    setRepoNames(loadScopedRepoNames(settings));
+  }, [settingsScope]);
 
   useEffect(() => {
     if (runtimeConfig.nexusUrl && !settings.username) setShowSettings(true);
@@ -70,7 +76,7 @@ export function useAppShellState() {
   const updateRepoName = (type, name) => {
     setRepoNames((current) => {
       const next = { ...current, [type]: name };
-      saveRepoNames(next);
+      saveScopedRepoNames(next, settings);
       return next;
     });
   };

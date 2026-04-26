@@ -1,7 +1,19 @@
 export const MAX_SEARCH_HISTORY = 6;
 export const MAX_SUGGESTIONS = 8;
 export const DEFAULT_SORT = { field: 'lastModified', direction: 'desc' };
-export const SORT_FIELDS = ['asset', 'repository', 'format', 'size', 'lastModified'];
+export const SORT_FIELDS = ['asset', 'uploader', 'repository', 'format', 'size', 'lastModified'];
+
+export function getAssetFileName(asset) {
+  return asset?.path?.split('/').pop() || asset?.name || asset?.id || '';
+}
+
+export function getAssetName(asset) {
+  return asset?.name || asset?.artifactId || asset?.packageName || getAssetFileName(asset);
+}
+
+export function getAssetUploader(asset) {
+  return asset?.uploader || asset?.blobCreatedBy || asset?.createdBy || '';
+}
 
 export function rememberSearchTerm(currentHistory, term) {
   const normalized = String(term || '').trim();
@@ -29,7 +41,7 @@ export function buildSearchSuggestions(inputValue, recentSearches, results) {
   if (!query) return suggestions.slice(0, MAX_SUGGESTIONS);
 
   results.forEach((asset) => {
-    const baseName = asset.path?.split('/').pop() || '';
+    const baseName = getAssetFileName(asset);
     pushSuggestion(asset.name, asset.group || asset.path || asset.repository || '', 'asset');
     pushSuggestion(asset.group, 'Group', 'group');
     if (baseName && baseName !== asset.name) {
@@ -41,13 +53,15 @@ export function buildSearchSuggestions(inputValue, recentSearches, results) {
 }
 
 export function getAssetDisplayName(asset) {
-  return asset?.path?.split('/').pop() || asset?.name || asset?.id || '';
+  return getAssetFileName(asset);
 }
 
 export function getSortValue(asset, field) {
   switch (field) {
     case 'asset':
       return getAssetDisplayName(asset).toLowerCase();
+    case 'uploader':
+      return getAssetUploader(asset).toLowerCase();
     case 'repository':
       return String(asset?.repository || '').toLowerCase();
     case 'format':

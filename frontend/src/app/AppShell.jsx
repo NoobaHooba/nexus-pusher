@@ -16,6 +16,7 @@ import { useDocumentTitle } from '../shared/hooks/useDocumentTitle';
 import { useToast } from '../shared/hooks/useToast';
 import { fetchRepositories } from '../shared/lib/nexusApi';
 import { useAppShellState } from './appState';
+import { getSettingsStorageScope } from './storage';
 
 const NEXUS_LOGO = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2301696f'/%3E%3Cpath d='M9 22 L16 10 L23 22' stroke='white' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath d='M12 18 L16 10 L20 18' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' fill='white' fill-opacity='0.25'/%3E%3C/svg%3E";
 
@@ -43,6 +44,7 @@ export default function AppShell() {
   const [reposLoading, setReposLoading] = useState(false);
   const [reposError, setReposError] = useState('');
   const repoName = repoNames[activeRepo] || '';
+  const storageScope = getSettingsStorageScope(effectiveSettings);
 
   const {
     staged, stagedSize, stageFiles, removeStaged, cancelStaged, pushStaged,
@@ -178,6 +180,7 @@ export default function AppShell() {
                   repoType={activeRepo}
                   stagedCount={staged.length}
                   settings={effectiveSettings}
+                  repoName={repoName}
                 />
                 <PreflightReview
                   items={staged}
@@ -213,8 +216,8 @@ export default function AppShell() {
           </>
         )}
 
-        {activePage === 'browser' && <BrowserPage settings={effectiveSettings} />}
-        {activePage === 'history' && <HistoryPage settings={effectiveSettings} />}
+        {activePage === 'browser' && <BrowserPage key={`browser:${storageScope}`} settings={effectiveSettings} />}
+        {activePage === 'history' && <HistoryPage key={`history:${storageScope}`} settings={effectiveSettings} />}
         {activePage === 'ldap' && <LdapPage settings={effectiveSettings} />}
 
         <footer className="mt-auto pt-8 border-t border-slate-200/80 dark:border-dark-border/80">

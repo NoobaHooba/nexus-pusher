@@ -90,7 +90,13 @@ export function uploadPypi({ nexusUrl, repo, username, password, file, onProgres
   return backendUpload({ type: 'pypi', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
 }
 export function uploadDocker({ nexusUrl, repo, settings }) {
-  const registry = repo ? `${repo}` : (settings?.dockerRegistry || 'your Nexus Docker registry');
+  const browserHost = String(settings?.nexusBrowserUrl || nexusUrl || '')
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '');
+  const configuredRegistry = String(settings?.dockerRegistry || '')
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '');
+  const registry = configuredRegistry || (browserHost ? `${browserHost}/repository/${repo || '<docker-repo>'}` : 'your Nexus Docker registry');
   return Promise.reject(new Error(
     `Docker images are pushed with the Docker CLI to ${registry}. Use docker login, docker tag, and docker push against your Nexus registry.`
   ));

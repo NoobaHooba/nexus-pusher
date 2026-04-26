@@ -123,9 +123,7 @@ router.post('/:type', upload.array('files'), async (req, res) => {
       artifactId = coordinates.artifactId || '';
 
       const result = await uploader.upload({ file, nexusUrl, repo, username, password, extra: uploadExtra });
-      const normalizedPath = result?.path && (String(result.path).includes('/') || !uploadPath)
-        ? result.path
-        : uploadPath;
+      const normalizedPath = result?.path ? String(result.path).replace(/^\/+/, '') : uploadPath;
       const normalizedBrowseUrl = result?.nexusUiUrl && normalizedPath
         ? buildBrowseUrl(nexusUrl, repo, normalizedPath)
         : (result?.nexusUiUrl || buildBrowseUrl(nexusUrl, repo, normalizedPath));

@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const { fetchRepositories, makeHeaders, normalizeBaseUrl, searchComponents } = require('../../shared/nexus/client');
+const { enrichAssetsWithUploader, findLatestUploadForAsset } = require('../../shared/persistence/db');
 
 function flattenComponentResults(data) {
   const items = Array.isArray(data?.items) ? data.items : [];
 
   return {
     continuationToken: data?.continuationToken || null,
-    items: items.flatMap((component) => {
+    items: enrichAssetsWithUploader(items.flatMap((component) => {
       const assets = Array.isArray(component?.assets) && component.assets.length > 0
         ? component.assets
         : [];
@@ -21,7 +22,7 @@ function flattenComponentResults(data) {
         version: component.version || '',
         group: component.group || '',
       }));
-    }),
+    })),
   };
 }
 
@@ -84,7 +85,12 @@ router.post('/asset', async (req, res) => {
     const resFetch = await fetch(`${base}/service/rest/v1/assets/${id}`, { headers });
     if (!resFetch.ok) throw Object.assign(new Error(`HTTP ${resFetch.status}`), { status: resFetch.status });
     const data = await resFetch.json();
-    return res.json(data);
+    const uploadInfo = findLatestUploadForAsset({
+      repo: data?.repository,
+      path: data?.path,
+      filename: data?.path?.split('/').pop() || data?.name,
+    });
+    return res.json(uploadInfo ? { ...data, ...uploadInfo } : data);
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message });
   }

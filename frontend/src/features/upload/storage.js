@@ -1,3 +1,5 @@
+import { getScopedStorageKey } from '../../app/storage';
+
 const HISTORY_KEY = 'nexus-pusher-history';
 const PREFS_KEY = 'nexus-pusher-user-prefs';
 
@@ -44,15 +46,16 @@ function extractSummary(item) {
   };
 }
 
-export function loadUploadPrefs() {
-  return loadUploadJson(PREFS_KEY, getDefaultUploadPrefs());
+export function loadUploadPrefs(settings) {
+  return loadUploadJson(getScopedStorageKey(PREFS_KEY, settings), getDefaultUploadPrefs());
 }
 
-export function saveUploadPrefs(prefs) {
-  saveUploadJson(PREFS_KEY, prefs);
+export function saveUploadPrefs(prefs, settings) {
+  saveUploadJson(getScopedStorageKey(PREFS_KEY, settings), prefs);
 }
 
-export function saveUploadHistory(item, maxEntries) {
-  const existing = loadUploadJson(HISTORY_KEY, []);
-  saveUploadJson(HISTORY_KEY, [extractSummary(item), ...existing].slice(0, maxEntries));
+export function saveUploadHistory(item, maxEntries, settings) {
+  const storageKey = getScopedStorageKey(HISTORY_KEY, settings);
+  const existing = loadUploadJson(storageKey, []);
+  saveUploadJson(storageKey, [extractSummary(item), ...existing].slice(0, maxEntries));
 }

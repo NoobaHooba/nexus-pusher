@@ -78,6 +78,20 @@ const insertStmt = db.prepare(`
   INSERT INTO uploads (ts, username, nexus_url, repo, type, filename, size, status, error, path, version, package_name, artifact_id, result_url)
   VALUES (@ts, @username, @nexus_url, @repo, @type, @filename, @size, @status, @error, @path, @version, @package_name, @artifact_id, @result_url)
 `);
+const latestUploadByPathStmt = db.prepare(`
+  SELECT username, ts, filename, path
+  FROM uploads
+  WHERE status = 'success' AND repo = ? AND path = ?
+  ORDER BY ts DESC
+  LIMIT 1
+`);
+const latestUploadByFilenameStmt = db.prepare(`
+  SELECT username, ts, filename, path
+  FROM uploads
+  WHERE status = 'success' AND repo = ? AND filename = ?
+  ORDER BY ts DESC
+  LIMIT 1
+`);
 
 /**
  * Record one upload result.
@@ -127,11 +141,24 @@ function record(p) {
  * @param {number}  [opts.offset=0]
  * @returns {{ rows: object[], total: number }}
  */
-function query({ username, repo, type, status, search, limit = 200, offset = 0 } = {}) {
+function query(opts = {}) {
+  const {
+    username,
+    repo,
+    type,
+    status,
+    search,
+    limit = 200,
+    offset = 0,
+  } = opts;
   const conditions = [];
   const params     = {};
+  const hasUsernameFilter = Object.prototype.hasOwnProperty.call(opts, 'username');
 
-  if (username) { conditions.push('username = @username'); params.username = username; }
+  if (hasUsernameFilter) {
+    conditions.push('username = @username');
+    params.username = username || '';
+  }
   if (repo)     { conditions.push('repo = @repo');         params.repo     = repo;     }
   if (type)     { conditions.push('type = @type');         params.type     = type;     }
   if (status)   { conditions.push('status = @status');     params.status   = status;   }
@@ -157,4 +184,54 @@ function clearHistory(username) {
   return db.prepare('DELETE FROM uploads WHERE username = ?').run(username || '').changes;
 }
 
-module.exports = { record, query, clearHistory };
+function normalizeAssetLookupValue(value) {
+  return String(value || '').replace(/^\/+/, '').trim();
+}
+
+function findLatestUploadForAsset({ repo, path, filename } = {}) {
+  const normalizedRepo = String(repo || '').trim();
+  const normalizedPath = normalizeAssetLookupValue(path);
+  const normalizedFilename = normalizeAssetLookupValue(filename);
+
+  if (!normalizedRepo) return null;
+
+  const byPath = normalizedPath
+    ? latestUploadByPathStmt.get(normalizedRepo, normalizedPath)
+    : null;
+
+  if (byPath) {
+    return {
+      uploader: byPath.username || '',
+      uploadedAt: byPath.ts || '',
+      uploadedFilename: byPath.filename || '',
+      uploadedPath: byPath.path || '',
+    };
+  }
+
+  const byFilename = normalizedFilename
+    ? latestUploadByFilenameStmt.get(normalizedRepo, normalizedFilename)
+    : null;
+
+  if (!byFilename) return null;
+
+  return {
+    uploader: byFilename.username || '',
+    uploadedAt: byFilename.ts || '',
+    uploadedFilename: byFilename.filename || '',
+    uploadedPath: byFilename.path || '',
+  };
+}
+
+function enrichAssetsWithUploader(assets = []) {
+  return assets.map((asset) => {
+    const uploadInfo = findLatestUploadForAsset({
+      repo: asset?.repository || asset?.repo,
+      path: asset?.path,
+      filename: asset?.path?.split('/').pop() || asset?.filename || asset?.name,
+    });
+
+    return uploadInfo ? { ...asset, ...uploadInfo } : asset;
+  });
+}
+
+module.exports = { record, query, clearHistory, findLatestUploadForAsset, enrichAssetsWithUploader };

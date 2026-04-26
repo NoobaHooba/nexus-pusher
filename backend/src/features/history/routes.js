@@ -12,8 +12,7 @@ const router = express.Router();
  */
 router.get('/', (req, res) => {
   try {
-    const { username, repo, type, status, search, limit, offset } = req.query;
-    const result = query({ username, repo, type, status, search, limit, offset });
+    const result = query(req.query || {});
     res.json(result);
   } catch (err) {
     console.error('[history] query error:', err);

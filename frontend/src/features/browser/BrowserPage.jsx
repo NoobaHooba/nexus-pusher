@@ -5,6 +5,9 @@ import {
   buildSearchSuggestions,
   compareAssets,
   DEFAULT_SORT,
+  getAssetFileName,
+  getAssetName,
+  getAssetUploader,
   getAssetDisplayName,
   rememberSearchTerm,
 } from './browserState';
@@ -45,6 +48,11 @@ function formatDate(iso) {
   catch { return iso; }
 }
 
+function formatUploader(asset) {
+  const uploader = getAssetUploader(asset);
+  return uploader || '—';
+}
+
 function fileIcon(path) {
   const ext = (path || '').split('.').pop().toLowerCase();
   const map = {
@@ -76,7 +84,6 @@ async function apiFetch(settings, path, body) {
 // ─── component ───────────────────────────────────────────────────────────────
 export default function BrowserPage({ settings }) {
   const { nexusUrl, username, password } = settings || {};
-  const initialState = useMemo(() => loadBrowserState(), []);
 
   // repos
   const [repos, setRepos]         = useState([]);
@@ -84,14 +91,15 @@ export default function BrowserPage({ settings }) {
   const [reposError, setReposError]     = useState(null);
 
   // filters
-  const [selectedRepo, setSelectedRepo] = useState(initialState.selectedRepo);
-  const [selectedFormat, setSelectedFormat] = useState(initialState.selectedFormat);
-  const [keyword, setKeyword]           = useState(initialState.keyword);
-  const [inputValue, setInputValue]     = useState(initialState.inputValue);
-  const [recentSearches, setRecentSearches] = useState(() => loadSearchHistory());
+  const [selectedRepo, setSelectedRepo] = useState(() => loadBrowserState(settings).selectedRepo);
+  const [selectedFormat, setSelectedFormat] = useState(() => loadBrowserState(settings).selectedFormat);
+  const [keyword, setKeyword]           = useState(() => loadBrowserState(settings).keyword);
+  const [inputValue, setInputValue]     = useState(() => loadBrowserState(settings).inputValue);
+  const [recentSearches, setRecentSearches] = useState(() => loadSearchHistory(settings));
+  const [repoFilter, setRepoFilter] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
-  const [sortState, setSortState] = useState(initialState.sortState);
+  const [sortState, setSortState] = useState(() => loadBrowserState(settings).sortState);
   const debounceRef = useRef(null);
   const searchBoxRef = useRef(null);
 
@@ -108,6 +116,19 @@ export default function BrowserPage({ settings }) {
   const [detailLoading, setDetailLoading] = useState(false);
 
   // ── load repos on mount ───────────────────────────────────────────────────
+  useEffect(() => {
+    const nextState = loadBrowserState(settings);
+    setSelectedRepo(nextState.selectedRepo);
+    setSelectedFormat(nextState.selectedFormat);
+    setKeyword(nextState.keyword);
+    setInputValue(nextState.inputValue);
+    setSortState(nextState.sortState);
+    setRecentSearches(loadSearchHistory(settings));
+    setRepoFilter('');
+    setShowSuggestions(false);
+    setHighlightedSuggestion(-1);
+  }, [settings?.nexusUrl, settings?.username]);
+
   useEffect(() => {
     if (!nexusUrl) return;
     setReposLoading(true);
@@ -170,10 +191,10 @@ export default function BrowserPage({ settings }) {
     if (!nextValue) return;
     setRecentSearches((current) => {
       const next = rememberSearchTerm(current, nextValue);
-      saveSearchHistory(next);
+      saveSearchHistory(next, settings);
       return next;
     });
-  }, []);
+  }, [settings]);
 
   // load more
   const loadMore = () => {
@@ -195,6 +216,17 @@ export default function BrowserPage({ settings }) {
 
   // ── derived ───────────────────────────────────────────────────────────────
   const availableFormats = [...new Set(repos.map(r => r.format).filter(Boolean))].sort();
+  const filteredRepos = useMemo(() => {
+    const query = repoFilter.trim().toLowerCase();
+    return repos
+      .filter((repo) => {
+        if (!repo?.name) return false;
+        if (selectedFormat && repo.format !== selectedFormat) return false;
+        if (!query) return true;
+        return repo.name.toLowerCase().includes(query);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [repoFilter, repos, selectedFormat]);
   const searchSuggestions = buildSearchSuggestions(inputValue, recentSearches, results);
   const sortedResults = useMemo(() => (
     [...results].sort((a, b) => compareAssets(a, b, sortState.field, sortState.direction))
@@ -251,8 +283,8 @@ export default function BrowserPage({ settings }) {
       inputValue,
       keyword,
       sortState,
-    });
-  }, [selectedRepo, selectedFormat, inputValue, keyword, sortState]);
+    }, settings);
+  }, [selectedRepo, selectedFormat, inputValue, keyword, sortState, settings?.nexusUrl, settings?.username]);
 
   if (!nexusUrl) {
     return (
@@ -277,8 +309,17 @@ export default function BrowserPage({ settings }) {
 
         {/* ── Repo sidebar ──────────────────────────────────────────────── */}
         <aside className="w-56 flex-shrink-0 bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 dark:border-dark-border">
+          <div className="px-4 py-3 border-b border-slate-100 dark:border-dark-border space-y-3">
             <p className="text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Repositories</p>
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint text-[18px]">search</span>
+              <input
+                value={repoFilter}
+                onChange={(e) => setRepoFilter(e.target.value)}
+                placeholder="Filter repos"
+                className="w-full rounded-xl border border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface-2 py-2 pl-9 pr-3 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent/30"
+              />
+            </div>
           </div>
           {reposLoading && (
             <div className="flex flex-col gap-2 p-3">
@@ -304,7 +345,7 @@ export default function BrowserPage({ settings }) {
                   All repositories
                 </button>
               </li>
-              {repos.map(repo => (
+              {filteredRepos.map(repo => (
                 <li key={repo.name}>
                   <button
                     onClick={() => setSelectedRepo(repo.name)}
@@ -328,6 +369,15 @@ export default function BrowserPage({ settings }) {
                   </button>
                 </li>
               ))}
+              {filteredRepos.length === 0 && (
+                <li className="px-4 py-6 text-xs text-slate-400 dark:text-dark-text-faint">
+                  {repoFilter
+                    ? `No repositories match "${repoFilter}".`
+                    : selectedFormat
+                      ? `No ${selectedFormat} repositories available.`
+                      : 'No repositories available.'}
+                </li>
+              )}
             </ul>
           )}
         </aside>
@@ -485,6 +535,7 @@ export default function BrowserPage({ settings }) {
                 <thead>
                   <tr className="border-b border-slate-100 dark:border-dark-border bg-slate-50/60 dark:bg-dark-surface-2">
                     <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Asset', 'asset')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Uploader', 'uploader')}</th>
                     <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Repository', 'repository')}</th>
                     <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Format', 'format')}</th>
                     <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Size', 'size')}</th>
@@ -494,7 +545,9 @@ export default function BrowserPage({ settings }) {
                 </thead>
                 <tbody>
                   {sortedResults.map((asset, i) => {
-                    const name = getAssetDisplayName(asset) || '—';
+                    const fileName = getAssetFileName(asset) || '—';
+                    const assetName = getAssetName(asset) || fileName;
+                    const uploader = formatUploader(asset);
                     const icon = fileIcon(asset.path || '');
                     const fmtColor = FORMAT_COLORS[asset.format] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
                     return (
@@ -507,11 +560,28 @@ export default function BrowserPage({ settings }) {
                           <div className="flex items-center gap-2.5">
                             <span className="material-symbols-outlined text-slate-300 dark:text-dark-text-faint text-[18px] flex-shrink-0">{icon}</span>
                             <div className="min-w-0">
-                              <p className="font-semibold text-primary dark:text-dark-text truncate max-w-[280px]" title={name}>{name}</p>
+                              <p className="font-semibold text-primary dark:text-dark-text truncate max-w-[280px]" title={assetName}>{assetName}</p>
+                              {fileName !== assetName && (
+                                <p className="text-[11px] text-on-surface-variant dark:text-dark-text-muted truncate max-w-[280px]" title={fileName}>
+                                  File: {fileName}
+                                </p>
+                              )}
                               {asset.path && (
                                 <p className="text-[10px] text-slate-400 dark:text-dark-text-faint font-mono truncate max-w-[280px]" title={asset.path}>{asset.path}</p>
                               )}
                             </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-0.5">
+                            <p className="text-xs font-medium text-on-surface-variant dark:text-dark-text-muted">
+                              {uploader}
+                            </p>
+                            {asset.uploadedAt && (
+                              <p className="text-[10px] text-slate-400 dark:text-dark-text-faint whitespace-nowrap">
+                                {formatDate(asset.uploadedAt)}
+                              </p>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3 text-xs font-mono text-on-surface-variant dark:text-dark-text-muted">{asset.repository || '—'}</td>
@@ -584,7 +654,7 @@ export default function BrowserPage({ settings }) {
               <div className="flex items-center gap-3">
                 <span className="material-symbols-outlined text-[22px] text-slate-400 dark:text-dark-text-faint">{fileIcon(detail.path || '')}</span>
                 <h3 className="font-bold text-primary dark:text-dark-text truncate max-w-[300px]">
-                  {detail.path?.split('/').pop() || detail.id || 'Asset'}
+                  {getAssetName(detail) || getAssetFileName(detail) || detail.id || 'Asset'}
                 </h3>
               </div>
               <button onClick={() => setDetail(null)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface-2">
@@ -636,6 +706,10 @@ export default function BrowserPage({ settings }) {
                 {/* Metadata grid */}
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                   {[
+                    ['Asset Name',    getAssetName(detail)],
+                    ['File Name',     getAssetFileName(detail)],
+                    ['Uploaded By',   formatUploader(detail)],
+                    ['Uploaded At',   detail.uploadedAt ? formatDate(detail.uploadedAt) : null],
                     ['Path',          detail.path],
                     ['Repository',    detail.repository],
                     ['Format',        detail.format],

@@ -24,6 +24,22 @@ export function saveJson(key, value) {
   }
 }
 
+function normalizeScopeValue(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+export function getSettingsStorageScope(settings = {}) {
+  const normalizedUrl = normalizeScopeValue(settings?.nexusUrl)
+    .replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '');
+  const normalizedUser = normalizeScopeValue(settings?.username) || 'anonymous';
+  return `${normalizedUser}@${normalizedUrl || 'local'}`;
+}
+
+export function getScopedStorageKey(key, settings) {
+  return `${key}:${getSettingsStorageScope(settings)}`;
+}
+
 export function getInitialTheme() {
   try {
     const stored = localStorage.getItem(THEME_KEY);
@@ -70,6 +86,10 @@ export function loadRepoNames() {
   return loadJson(REPO_NAMES_KEY, {});
 }
 
-export function saveRepoNames(repoNames) {
-  saveJson(REPO_NAMES_KEY, repoNames);
+export function loadScopedRepoNames(settings) {
+  return loadJson(getScopedStorageKey(REPO_NAMES_KEY, settings), {});
+}
+
+export function saveScopedRepoNames(repoNames, settings) {
+  saveJson(getScopedStorageKey(REPO_NAMES_KEY, settings), repoNames);
 }

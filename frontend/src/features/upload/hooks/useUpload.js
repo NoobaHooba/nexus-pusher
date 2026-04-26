@@ -63,15 +63,25 @@ const genId = () => ++idCounter;
 export function useUpload(settings, repoType, repoName, toast) {
   const [staged, setStaged] = useState([]);
   const [queue, setQueue] = useState([]);
-  const [prefs, setPrefs] = useState(() => loadUploadPrefs());
+  const [prefs, setPrefs] = useState(() => loadUploadPrefs(settings));
   const processingRef = useRef(false);
+  const skipPersistPrefsRef = useRef(true);
   const toastRef = useRef(toast);
   const previousRepoType = useRef(repoType);
   toastRef.current = toast;
 
   useEffect(() => {
-    saveUploadPrefs(prefs);
-  }, [prefs]);
+    skipPersistPrefsRef.current = true;
+    setPrefs(loadUploadPrefs(settings));
+  }, [settings?.nexusUrl, settings?.username]);
+
+  useEffect(() => {
+    if (skipPersistPrefsRef.current) {
+      skipPersistPrefsRef.current = false;
+      return;
+    }
+    saveUploadPrefs(prefs, settings);
+  }, [prefs, settings?.nexusUrl, settings?.username]);
 
   useEffect(() => {
     if (previousRepoType.current !== repoType) {
@@ -283,7 +293,7 @@ export function useUpload(settings, repoType, repoName, toast) {
       if (!uploader) {
         processingRef.current = false;
         const patch = { status: 'error', statusText: `Unknown repo type: ${item.repoType}` };
-        saveUploadHistory({ ...item, ...patch }, MAX_HISTORY);
+        saveUploadHistory({ ...item, ...patch }, MAX_HISTORY, item.settings);
         return currentQueue.map((entry) => (entry.id === item.id ? { ...entry, ...patch } : entry));
       }
 
@@ -333,7 +343,7 @@ export function useUpload(settings, repoType, repoName, toast) {
               coordinates: result?.coordinates || item.coordinates || {},
             };
             updateQueueItem(item.id, patch);
-            saveUploadHistory({ ...item, ...patch }, MAX_HISTORY);
+            saveUploadHistory({ ...item, ...patch }, MAX_HISTORY, item.settings);
             persistSuccessfulContext({ ...item, ...patch });
 
             toastRef.current?.success(`Pushed to ${item.repoName}${attempt > 0 ? ` on attempt ${attempt + 1}` : ''}`, {
@@ -362,7 +372,7 @@ export function useUpload(settings, repoType, repoName, toast) {
             retryCount: attempt,
           };
           updateQueueItem(item.id, patch);
-          saveUploadHistory({ ...item, ...patch }, MAX_HISTORY);
+          saveUploadHistory({ ...item, ...patch }, MAX_HISTORY, item.settings);
           toastRef.current?.error(patch.statusText, { title: item.name, duration: 7000 });
         }
 

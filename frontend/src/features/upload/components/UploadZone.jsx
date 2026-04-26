@@ -23,6 +23,28 @@ const REPO_HINTS = {
   raw:    'any file',
 };
 
+function stripProtocol(value) {
+  return String(value || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+}
+
+function buildDockerTargets(settings, repoName) {
+  const selectedRepo = String(repoName || '').trim().replace(/^\/+|\/+$/g, '');
+  const browserHost = stripProtocol(settings?.nexusBrowserUrl || settings?.nexusUrl || '');
+  const configuredRegistry = stripProtocol(settings?.dockerRegistry || '');
+  const registryPrefix = configuredRegistry || (browserHost ? `${browserHost}/repository` : '');
+  const normalizedPrefix = registryPrefix.replace(/\/+$/, '');
+  const prefixAlreadyIncludesRepo = selectedRepo && normalizedPrefix.endsWith(`/${selectedRepo}`);
+  const imagePrefix = selectedRepo && !prefixAlreadyIncludesRepo
+    ? `${normalizedPrefix}/${selectedRepo}`
+    : normalizedPrefix;
+  const loginTarget = (configuredRegistry || browserHost).split('/')[0] || '<docker-registry-host>';
+
+  return {
+    loginTarget,
+    imagePrefix: imagePrefix || '<docker-registry-host>/<docker-repo>',
+  };
+}
+
 function validateFiles(files, repoType) {
   const allowed = REPO_EXTENSIONS[repoType];
   if (!allowed || allowed.length === 0) return { valid: files, warnings: [] };
@@ -34,7 +56,7 @@ function validateFiles(files, repoType) {
   return { valid, warnings };
 }
 
-export default function UploadZone({ onFiles, repoType, stagedCount, settings }) {
+export default function UploadZone({ onFiles, repoType, stagedCount, settings, repoName }) {
   const inputRef            = useRef();
   const [dragging, setDragging]   = useState(false);
   const [warnings, setWarnings]   = useState([]);
@@ -99,9 +121,7 @@ export default function UploadZone({ onFiles, repoType, stagedCount, settings })
   const hint = REPO_HINTS[repoType];
 
   if (repoType === 'docker') {
-    const registry = settings?.dockerRegistry?.trim()
-      || settings?.defaultRepo?.trim()
-      || '<nexus-registry-host>';
+    const { loginTarget, imagePrefix } = buildDockerTargets(settings, repoName);
 
     return (
       <div className="flex flex-col gap-6">
@@ -112,16 +132,26 @@ export default function UploadZone({ onFiles, repoType, stagedCount, settings })
           <div className="flex flex-col gap-2">
             <h4 className="text-2xl font-bold text-primary dark:text-dark-text">Docker Images Use the CLI</h4>
             <p className="text-on-surface-variant dark:text-dark-text-muted max-w-2xl">
-              Publish Docker images to your Nexus registry with the Docker CLI. The browser flow is reserved for file-based package formats.
+              Publish Docker images with the Docker CLI. The selected Docker repository is used to build the target below.
             </p>
           </div>
           <div className="rounded-2xl bg-slate-50 dark:bg-dark-surface-2 border border-slate-100 dark:border-dark-border px-5 py-4 flex flex-col gap-3">
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">
               Nexus Docker Flow
             </p>
-            <code className="block text-sm font-mono text-primary dark:text-dark-text">docker login {registry}</code>
-            <code className="block text-sm font-mono text-primary dark:text-dark-text">docker tag my-image:1.0.0 {registry}/my-image:1.0.0</code>
-            <code className="block text-sm font-mono text-primary dark:text-dark-text">docker push {registry}/my-image:1.0.0</code>
+            <code className="block text-sm font-mono text-primary dark:text-dark-text">docker login {loginTarget}</code>
+            <code className="block text-sm font-mono text-primary dark:text-dark-text">docker tag my-image:1.0.0 {imagePrefix}/my-image:1.0.0</code>
+            <code className="block text-sm font-mono text-primary dark:text-dark-text">docker push {imagePrefix}/my-image:1.0.0</code>
+            {!repoName && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Select a Docker repository above to generate the exact push target.
+              </p>
+            )}
+            {!settings?.dockerRegistry?.trim() && (
+              <p className="text-xs text-slate-500 dark:text-dark-text-muted">
+                Using a fallback target derived from the Nexus browser URL. If your deployment exposes Docker on a dedicated host or port, set `DOCKER_REGISTRY` in the backend container for exact commands.
+              </p>
+            )}
           </div>
         </div>
       </div>

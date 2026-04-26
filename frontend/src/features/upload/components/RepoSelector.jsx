@@ -91,19 +91,78 @@ export default function RepoSelector({
       {active && (() => {
         const type = REPO_TYPES.find(r => r.id === active);
         if (active === 'docker') {
+          const dockerRegistryHint = 'registry.example.com';
           return (
             <div className="mt-6 flex items-start gap-4 bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-2xl px-6 py-4 shadow-sm">
               <span className="material-symbols-outlined text-accent dark:text-dark-accent text-[20px] mt-0.5">info</span>
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 flex-1">
                 <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">
                   Docker Workflow
                 </label>
                 <p className="text-sm font-semibold text-primary dark:text-dark-text">
-                  Docker images are pushed to your Nexus Docker registry with the Docker CLI.
+                  Docker images are pushed with the Docker CLI. Pick the Docker repository so the generated target matches the correct Nexus repo.
                 </p>
-                <p className="text-xs text-on-surface-variant dark:text-dark-text-muted font-mono">
-                  docker login &lt;nexus-registry&gt; && docker push &lt;nexus-registry&gt;/&lt;image&gt;:&lt;tag&gt;
-                </p>
+                {filteredRepos.length > 0 ? (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <select
+                        value={selectedRepoName}
+                        onChange={e => onRepoNameChange(active, e.target.value)}
+                        className="text-sm font-semibold text-primary dark:text-dark-text bg-transparent border-none outline-none w-full pr-8"
+                      >
+                        <option value="">Select a Docker repository</option>
+                        {rankedRepos.map((repo) => (
+                          <option key={repo.name} value={repo.name}>
+                            {repo.name}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedRepoName && (
+                        <button
+                          onClick={() => onToggleFavorite?.(active, selectedRepoName)}
+                          className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors ${
+                            favorites.includes(selectedRepoName)
+                              ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-500 dark:text-amber-300'
+                              : 'bg-slate-100 dark:bg-dark-surface-2 text-slate-400 dark:text-dark-text-faint'
+                          }`}
+                          title={favorites.includes(selectedRepoName) ? 'Unpin repo' : 'Pin repo'}
+                        >
+                          <span className="material-symbols-outlined text-[18px]">{favorites.includes(selectedRepoName) ? 'star' : 'star_outline'}</span>
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 dark:text-dark-text-faint mt-1">
+                      Showing hosted Docker repositories from Nexus. The selected repository is used by the Docker push instructions below.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      value={selectedRepoName}
+                      onChange={e => onRepoNameChange(active, e.target.value)}
+                      placeholder="e.g. docker-hosted"
+                      className="text-sm font-semibold text-primary dark:text-dark-text bg-transparent border-none outline-none placeholder:text-slate-300 dark:placeholder:text-dark-text-faint w-full"
+                    />
+                    <p className="text-[11px] text-slate-400 dark:text-dark-text-faint mt-1">
+                      {reposLoading
+                        ? 'Loading Docker repositories from Nexus…'
+                        : reposError
+                          ? 'Repository list unavailable. Enter the Docker repo name manually.'
+                          : 'No hosted Docker repositories found. Enter the repo name manually.'}
+                    </p>
+                  </>
+                )}
+                <div className="rounded-2xl bg-slate-50 dark:bg-dark-surface-2 border border-slate-100 dark:border-dark-border px-4 py-3 mt-2">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint mb-2">
+                    Example Target
+                  </p>
+                  <p className="text-xs text-on-surface-variant dark:text-dark-text-muted font-mono break-all">
+                    {selectedRepoName
+                      ? `${dockerRegistryHint}/${selectedRepoName}/my-image:1.0.0`
+                      : `${dockerRegistryHint}/<docker-repo>/my-image:1.0.0`}
+                  </p>
+                </div>
               </div>
             </div>
           );

@@ -87,25 +87,32 @@ function exportCsv(rows, settings) {
 }
 
 export default function HistoryPage({ settings }) {
-  const initialStateRef = useRef(null);
-  if (!initialStateRef.current) initialStateRef.current = loadHistoryState();
-  const initialState = initialStateRef.current;
   const [rows,   setRows]   = useState([]);
   const [total,  setTotal]  = useState(0);
   const [loading, setLoading] = useState(false);
   const [error,  setError]  = useState(null);
 
-  const [search,       setSearch]       = useState(initialState.search);
-  const [filterStatus, setFilterStatus] = useState(initialState.filterStatus);
-  const [filterType,   setFilterType]   = useState(initialState.filterType);
-  const [offset,       setOffset]       = useState(initialState.offset);
+  const [search,       setSearch]       = useState(() => loadHistoryState(settings).search);
+  const [filterStatus, setFilterStatus] = useState(() => loadHistoryState(settings).filterStatus);
+  const [filterType,   setFilterType]   = useState(() => loadHistoryState(settings).filterType);
+  const [offset,       setOffset]       = useState(() => loadHistoryState(settings).offset);
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing,         setClearing]         = useState(false);
 
   // debounce search input
   const searchTimer = useRef(null);
-  const [debouncedSearch, setDebouncedSearch] = useState(initialState.search);
+  const [debouncedSearch, setDebouncedSearch] = useState(() => loadHistoryState(settings).search);
+
+  useEffect(() => {
+    const nextState = loadHistoryState(settings);
+    setSearch(nextState.search);
+    setFilterStatus(nextState.filterStatus);
+    setFilterType(nextState.filterType);
+    setOffset(nextState.offset);
+    setDebouncedSearch(nextState.search);
+    setShowClearConfirm(false);
+  }, [settings?.nexusUrl, settings?.username]);
   useEffect(() => {
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => {
@@ -123,8 +130,7 @@ export default function HistoryPage({ settings }) {
       if (debouncedSearch)         params.set('search', debouncedSearch);
       if (filterStatus !== 'all')  params.set('status', filterStatus);
       if (filterType   !== 'all')  params.set('type',   filterType);
-      // scope by current Nexus username so each user sees their own uploads
-      if (settings?.username)      params.set('username', settings.username);
+      params.set('username', settings?.username || '');
       params.set('limit',  PAGE_SIZE);
       params.set('offset', offset);
 
@@ -151,8 +157,8 @@ export default function HistoryPage({ settings }) {
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
   useEffect(() => {
-    saveHistoryState({ search, filterStatus, filterType, offset });
-  }, [search, filterStatus, filterType, offset]);
+    saveHistoryState({ search, filterStatus, filterType, offset }, settings);
+  }, [search, filterStatus, filterType, offset, settings?.nexusUrl, settings?.username]);
 
   // re-fetch when the tab becomes visible (user switched away during an upload)
   useEffect(() => {
@@ -167,7 +173,7 @@ export default function HistoryPage({ settings }) {
       await fetch(apiUrl(settings, '/api/history'), {
         method:  'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ username: settings?.username || '*' }),
+        body:    JSON.stringify({ username: settings?.username || '' }),
       });
       setRows([]);
       setTotal(0);
