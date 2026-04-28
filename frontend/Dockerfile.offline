@@ -8,13 +8,14 @@ ENV VITE_BACKEND_URL=${VITE_BACKEND_URL}
 
 COPY package.json package-lock.json ./
 COPY node_modules ./node_modules
+RUN find ./node_modules -type f -path '*/bin/*' -exec chmod 755 {} + || true
 COPY index.html ./
 COPY postcss.config.js ./
 COPY tailwind.config.js ./
 COPY vite.config.js ./
 COPY src ./src
 
-RUN npm run build
+RUN node ./node_modules/vite/bin/vite.js build
 
 FROM nginx:alpine
 
