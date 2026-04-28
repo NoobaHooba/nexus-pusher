@@ -53,6 +53,10 @@ function buildArtifactPath(type, fileName, extra = {}, detected = {}) {
     return fileName;
   }
 
+  if (type === 'docker') {
+    return '';
+  }
+
   if (type === 'npm') {
     const packageName = detected.coordinates?.packageName || detected.name || stripKnownExtension(fileName);
     const version = detected.coordinates?.version || detected.version || '';

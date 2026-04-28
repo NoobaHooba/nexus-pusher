@@ -59,6 +59,49 @@ function readTarGzEntry(filePath, predicate) {
   });
 }
 
+function readTarEntry(filePath, predicate) {
+  return new Promise((resolve, reject) => {
+    let resolved = false;
+    const extract = tar.extract();
+    const input = fs.createReadStream(filePath);
+
+    const finishWith = (value) => {
+      if (resolved) return;
+      resolved = true;
+      resolve(value);
+    };
+
+    extract.on('entry', (header, stream, next) => {
+      const match = predicate(header.name);
+      if (!match || resolved) {
+        stream.resume();
+        stream.on('end', next);
+        return;
+      }
+
+      const chunks = [];
+      stream.on('data', (chunk) => chunks.push(chunk));
+      stream.on('end', () => {
+        finishWith(Buffer.concat(chunks).toString('utf8'));
+        next();
+      });
+    });
+    extract.on('finish', () => finishWith(null));
+    extract.on('error', reject);
+    input.on('error', reject);
+
+    input.pipe(extract);
+  });
+}
+
+function readArchiveEntry(filePath, originalName, predicate) {
+  const lower = String(originalName || '').toLowerCase();
+  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+    return readTarGzEntry(filePath, predicate);
+  }
+  return readTarEntry(filePath, predicate);
+}
+
 function extractXmlTag(xml, tags) {
   for (const tag of tags) {
     const match = String(xml || '').match(new RegExp(`<${tag}>([^<]+)</${tag}>`, 'i'));
@@ -315,7 +358,77 @@ async function detectSimplePackage(file, fieldName) {
   };
 }
 
-async function detectArtifact(type, file) {
+function parseDockerReference(reference) {
+  const value = String(reference || '').trim();
+  if (!value) {
+    return { imageName: '', imageTag: '', sourceTag: '' };
+  }
+
+  const lastSlash = value.lastIndexOf('/');
+  const lastColon = value.lastIndexOf(':');
+  const hasExplicitTag = lastColon > lastSlash;
+  const taglessReference = hasExplicitTag ? value.slice(0, lastColon) : value;
+  const segments = taglessReference.split('/');
+  const firstSegment = segments[0] || '';
+  const hasRegistryPrefix = segments.length > 1
+    && (firstSegment.includes('.') || firstSegment.includes(':') || firstSegment === 'localhost');
+
+  return {
+    imageName: hasRegistryPrefix ? segments.slice(1).join('/') : taglessReference,
+    imageTag: hasExplicitTag ? value.slice(lastColon + 1) : 'latest',
+    sourceTag: hasExplicitTag ? value : `${value}:latest`,
+  };
+}
+
+async function detectDocker(file, extra = {}) {
+  const warnings = [];
+  let sourceTag = String(extra.sourceTag || '').trim();
+
+  try {
+    const manifestText = await readArchiveEntry(
+      file.path,
+      file.originalname,
+      (entryName) => /(^|\/)manifest\.json$/i.test(entryName)
+    );
+
+    if (manifestText) {
+      const manifest = JSON.parse(manifestText);
+      const firstImage = Array.isArray(manifest) ? manifest.find((entry) => Array.isArray(entry?.RepoTags) && entry.RepoTags.length > 0) || manifest[0] : null;
+      sourceTag = sourceTag || firstImage?.RepoTags?.[0] || '';
+      if (!sourceTag) {
+        warnings.push('Docker archive metadata does not include a tagged image. Enter the image name and tag before uploading.');
+      }
+    } else {
+      warnings.push('Could not find manifest.json in the Docker archive. Enter the image name and tag before uploading.');
+    }
+  } catch (_) {
+    warnings.push('Could not inspect Docker archive metadata. Enter the image name and tag before uploading.');
+  }
+
+  const parsed = parseDockerReference(sourceTag);
+  const imageName = String(extra.imageName || '').trim() || parsed.imageName;
+  const imageTag = String(extra.imageTag || '').trim() || parsed.imageTag;
+
+  return {
+    detected: {
+      name: imageName || file.originalname,
+      version: imageTag,
+      extension: getExtension(file.originalname),
+      coordinates: {
+        imageName,
+        imageTag,
+        sourceTag: parsed.sourceTag || sourceTag,
+      },
+    },
+    missingFields: ['imageName', 'imageTag'].filter((key) => !({
+      imageName,
+      imageTag,
+    })[key]),
+    warnings,
+  };
+}
+
+async function detectArtifact(type, file, extra = {}) {
   switch (type) {
     case 'maven':
       return detectMaven(file);
@@ -327,6 +440,8 @@ async function detectArtifact(type, file) {
       return detectHelm(file);
     case 'pypi':
       return detectPypi(file);
+    case 'docker':
+      return detectDocker(file, extra);
     case 'apt':
       return detectSimplePackage(file, 'packageName');
     case 'yum':

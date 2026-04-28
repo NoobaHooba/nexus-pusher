@@ -1,6 +1,10 @@
 import React from 'react';
 
 export const FIELD_MAP = {
+  docker: [
+    { key: 'imageName', label: 'Image Name', placeholder: 'team/app' },
+    { key: 'imageTag',  label: 'Image Tag',  placeholder: '1.0.0' },
+  ],
   maven: [
     { key: 'groupId',    label: 'Group ID',    placeholder: 'com.example' },
     { key: 'artifactId', label: 'Artifact ID', placeholder: 'my-artifact' },

@@ -1,41 +1,58 @@
 const { execFileSync } = require('child_process');
-const path = require('path');
+const { detectArtifact } = require('../../../shared/artifacts/metadata');
+const { stripKnownExtension } = require('../../../shared/artifacts/paths');
 
-/**
- * Loads a Docker image tarball and pushes it to a Docker registry.
- * Requires Docker CLI to be available in the backend container.
- * extra: { imageName, imageTag, registry }
- *
- * Uses execFileSync (not execSync) to prevent shell injection — arguments are
- * passed as an array and never interpolated into a shell string.
- */
-async function upload({ file, nexusUrl, repo, username, password, extra }) {
-  const registry = (extra.registry || repo || '').trim();
-  const imageName = extra.imageName || path.basename(file.originalname, '.tar');
-  const imageTag  = extra.imageTag  || 'latest';
-  const fullTag   = registry ? `${registry}/${imageName}:${imageTag}` : `${imageName}:${imageTag}`;
+function extractRegistryHost(registry) {
+  return String(registry || '').trim().split('/')[0] || '';
+}
 
-  const opts = { timeout: 10 * 60 * 1000, stdio: 'pipe' }; // 10-minute timeout
+function parseDockerLoadOutput(output) {
+  const text = String(output || '').trim();
+  const loadedRef = text.match(/Loaded image:\s+(.+)$/im)?.[1]?.trim() || '';
+  const loadedId = text.match(/Loaded image ID:\s+(.+)$/im)?.[1]?.trim() || '';
+  return { loadedRef, loadedId };
+}
 
-  // Load
-  execFileSync('docker', ['load', '-i', file.path], opts);
+async function upload({ file, repo, username, password, extra = {} }) {
+  const detectedResult = await detectArtifact('docker', file, extra);
+  const detectedCoordinates = detectedResult?.detected?.coordinates || {};
+  const imageName = String(extra.imageName || detectedCoordinates.imageName || stripKnownExtension(file.originalname)).trim();
+  const imageTag = String(extra.imageTag || detectedCoordinates.imageTag || 'latest').trim();
+  const sourceTag = String(extra.sourceTag || detectedCoordinates.sourceTag || '').trim();
+  const registry = String(extra.registry || repo || '').trim().replace(/\/+$/, '');
+  const registryHost = String(extra.registryHost || extractRegistryHost(registry)).trim();
+  const fullTag = registry ? `${registry}/${imageName}:${imageTag}` : `${imageName}:${imageTag}`;
+  const opts = { timeout: 10 * 60 * 1000, stdio: 'pipe', encoding: 'utf8' };
 
-  // Tag
-  execFileSync('docker', ['tag', `${imageName}:${imageTag}`, fullTag], opts);
+  const loadOutput = execFileSync('docker', ['load', '-i', file.path], opts);
+  const { loadedRef, loadedId } = parseDockerLoadOutput(loadOutput);
+  const sourceRef = sourceTag || loadedRef || loadedId;
 
-  // Login (password via stdin to avoid it appearing in process list)
-  if (username) {
+  if (!sourceRef) {
+    throw new Error('Docker image was loaded, but the backend could not determine its source tag. Enter the image name and tag before retrying.');
+  }
+
+  execFileSync('docker', ['tag', sourceRef, fullTag], opts);
+
+  if (username && registryHost) {
     execFileSync(
       'docker',
-      ['login', registry, '-u', username, '--password-stdin'],
+      ['login', registryHost, '-u', username, '--password-stdin'],
       { ...opts, input: password || '' }
     );
   }
 
-  // Push
   execFileSync('docker', ['push', fullTag], opts);
 
-  return { registry, fullTag };
+  return {
+    path: '',
+    fullTag,
+    coordinates: {
+      imageName,
+      imageTag,
+      sourceTag: sourceRef,
+    },
+  };
 }
 
 module.exports = { upload };

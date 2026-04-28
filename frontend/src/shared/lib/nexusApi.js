@@ -1,5 +1,24 @@
 import { apiUrl } from './backendApi';
 
+function stripProtocol(value) {
+  return String(value || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+}
+
+function buildDockerRegistryTarget({ nexusUrl, repo, settings }) {
+  const selectedRepo = String(repo || '').trim().replace(/^\/+|\/+$/g, '');
+  const browserHost = stripProtocol(settings?.nexusBrowserUrl || nexusUrl || '');
+  const configuredRegistry = stripProtocol(settings?.dockerRegistry || '');
+  const registryPrefix = configuredRegistry || (browserHost ? `${browserHost}/repository` : '');
+  const normalizedPrefix = registryPrefix.replace(/\/+$/, '');
+  const prefixAlreadyIncludesRepo = selectedRepo && normalizedPrefix.endsWith(`/${selectedRepo}`);
+  const registry = selectedRepo && !prefixAlreadyIncludesRepo
+    ? `${normalizedPrefix}/${selectedRepo}`
+    : normalizedPrefix;
+  const registryHost = (configuredRegistry || browserHost).split('/')[0] || '';
+
+  return { registry, registryHost };
+}
+
 export async function fetchRepositories({ nexusUrl, username, password, settings }) {
   const res = await fetch(apiUrl(settings, '/api/browse/repos'), {
     method: 'POST',
@@ -89,17 +108,23 @@ export function uploadNuget({ nexusUrl, repo, username, password, file, onProgre
 export function uploadPypi({ nexusUrl, repo, username, password, file, onProgress, settings }) {
   return backendUpload({ type: 'pypi', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
 }
-export function uploadDocker({ nexusUrl, repo, settings }) {
-  const browserHost = String(settings?.nexusBrowserUrl || nexusUrl || '')
-    .replace(/^https?:\/\//i, '')
-    .replace(/\/+$/, '');
-  const configuredRegistry = String(settings?.dockerRegistry || '')
-    .replace(/^https?:\/\//i, '')
-    .replace(/\/+$/, '');
-  const registry = configuredRegistry || (browserHost ? `${browserHost}/repository/${repo || '<docker-repo>'}` : 'your Nexus Docker registry');
-  return Promise.reject(new Error(
-    `Docker images are pushed with the Docker CLI to ${registry}. Use docker login, docker tag, and docker push against your Nexus registry.`
-  ));
+export function uploadDocker({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
+  const { registry, registryHost } = buildDockerRegistryTarget({ nexusUrl, repo, settings });
+  return backendUpload({
+    type: 'docker',
+    nexusUrl,
+    repo,
+    username,
+    password,
+    file,
+    extra: {
+      ...(extra || {}),
+      registry,
+      registryHost,
+    },
+    onProgress,
+    settings,
+  });
 }
 export function uploadYum({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
   return backendUpload({ type: 'yum', nexusUrl, repo, username, password, file, extra, onProgress, settings });
