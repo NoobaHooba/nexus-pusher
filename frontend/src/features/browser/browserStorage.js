@@ -2,7 +2,13 @@ import { getScopedStorageKey } from '../../app/storage';
 import { DEFAULT_SORT, MAX_SEARCH_HISTORY, SORT_FIELDS } from './browserState';
 
 const SEARCH_HISTORY_KEY = 'nexus-pusher-browser-search-history';
-const BROWSER_STATE_KEY = 'nexus-pusher-browser-state';
+const BROWSER_UI_KEY = 'nexus-pusher-browser-ui';
+
+function normalizeSortState(sortState = {}) {
+  const field = SORT_FIELDS.includes(sortState?.field) ? sortState.field : DEFAULT_SORT.field;
+  const direction = sortState?.direction === 'asc' ? 'asc' : 'desc';
+  return { field, direction };
+}
 
 export function loadSearchHistory(settings) {
   try {
@@ -24,32 +30,30 @@ export function saveSearchHistory(history, settings) {
   }
 }
 
-export function loadBrowserState(settings) {
+export function loadBrowserUiPrefs(settings) {
   try {
-    const stored = JSON.parse(localStorage.getItem(getScopedStorageKey(BROWSER_STATE_KEY, settings)) || '{}');
-    const sortField = SORT_FIELDS.includes(stored?.sortState?.field) ? stored.sortState.field : DEFAULT_SORT.field;
-    const sortDirection = stored?.sortState?.direction === 'asc' ? 'asc' : 'desc';
+    const stored = JSON.parse(localStorage.getItem(getScopedStorageKey(BROWSER_UI_KEY, settings)) || '{}');
     return {
-      selectedRepo: stored?.selectedRepo || '',
-      selectedFormat: stored?.selectedFormat || '',
-      inputValue: stored?.inputValue || '',
-      keyword: stored?.keyword || stored?.inputValue || '',
-      sortState: { field: sortField, direction: sortDirection },
+      filtersOpen: stored?.filtersOpen ?? stored?.advancedFiltersOpen !== false,
+      localFiltersOpen: stored?.localFiltersOpen === true,
+      sortState: normalizeSortState(stored?.sortState),
     };
   } catch {
     return {
-      selectedRepo: '',
-      selectedFormat: '',
-      inputValue: '',
-      keyword: '',
+      filtersOpen: true,
+      localFiltersOpen: false,
       sortState: DEFAULT_SORT,
     };
   }
 }
 
-export function saveBrowserState(state, settings) {
+export function saveBrowserUiPrefs(prefs, settings) {
   try {
-    localStorage.setItem(getScopedStorageKey(BROWSER_STATE_KEY, settings), JSON.stringify(state));
+    localStorage.setItem(getScopedStorageKey(BROWSER_UI_KEY, settings), JSON.stringify({
+      filtersOpen: prefs?.filtersOpen !== false,
+      localFiltersOpen: prefs?.localFiltersOpen === true,
+      sortState: normalizeSortState(prefs?.sortState),
+    }));
   } catch (_) {
     // ignore storage failures
   }

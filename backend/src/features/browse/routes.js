@@ -1,29 +1,45 @@
 const express = require('express');
 const router = express.Router();
-const { fetchRepositories, makeHeaders, normalizeBaseUrl, searchComponents } = require('../../shared/nexus/client');
+const { fetchRepositories, makeHeaders, normalizeBaseUrl, searchAssets } = require('../../shared/nexus/client');
 const { enrichAssetsWithUploader, findLatestUploadForAsset } = require('../../shared/persistence/db');
 
-function flattenComponentResults(data) {
-  const items = Array.isArray(data?.items) ? data.items : [];
-
-  return {
-    continuationToken: data?.continuationToken || null,
-    items: enrichAssetsWithUploader(items.flatMap((component) => {
-      const assets = Array.isArray(component?.assets) && component.assets.length > 0
-        ? component.assets
-        : [];
-
-      return assets.map((asset) => ({
-        ...asset,
-        componentId: component.id || '',
-        repository: asset.repository || component.repository || '',
-        format: asset.format || component.format || '',
-        name: component.name || '',
-        version: component.version || '',
-        group: component.group || '',
-      }));
-    })),
+function buildSearchQuery(query = {}, continuationToken = '') {
+  const params = {
+    pageSize: '50',
   };
+  const normalized = query && typeof query === 'object' ? query : {};
+  const maven = normalized.maven && typeof normalized.maven === 'object' ? normalized.maven : {};
+  const keywordTerms = [
+    String(normalized.keyword || '').trim(),
+    String(normalized.name || '').trim(),
+    String(normalized.group || '').trim(),
+    String(normalized.version || '').trim(),
+    String(maven.groupId || '').trim(),
+    String(maven.artifactId || '').trim(),
+    String(maven.baseVersion || '').trim(),
+    String(maven.classifier || '').trim(),
+    String(maven.extension || '').trim(),
+  ].filter(Boolean);
+
+  const mappings = [
+    ['repository', 'repository'],
+    ['format', 'format'],
+  ];
+
+  if (keywordTerms.length > 0) {
+    params.q = keywordTerms.join(' ');
+  }
+
+  mappings.forEach(([sourceKey, targetKey]) => {
+    const value = String(normalized[sourceKey] || '').trim();
+    if (value) params[targetKey] = value;
+  });
+
+  if (continuationToken) {
+    params.continuationToken = continuationToken;
+  }
+
+  return params;
 }
 
 /**
@@ -43,29 +59,24 @@ router.post('/repos', async (req, res) => {
 
 /**
  * POST /api/browse/search
- * Body: { nexusUrl, username, password, keyword, repository, format, continuationToken }
- * Uses Nexus Search Components API so browse links can include component context.
+ * Body: { nexusUrl, username, password, continuationToken, query }
+ * Uses Nexus Search Assets API for richer asset-level filtering.
  */
 router.post('/search', async (req, res) => {
-  const { nexusUrl, username, password, keyword, repository, format, continuationToken } = req.body || {};
+  const { nexusUrl, username, password, continuationToken, query } = req.body || {};
   if (!nexusUrl) return res.status(400).json({ error: 'nexusUrl is required' });
 
-  const params = new URLSearchParams();
-  if (keyword)           params.set('q',                   keyword);
-  if (repository)        params.set('repository',          repository);
-  if (format)            params.set('format',              format);
-  if (continuationToken) params.set('continuationToken',   continuationToken);
-  // Page size — keep it reasonable for the UI
-  params.set('pageSize', '50');
-
   try {
-    const data = await searchComponents({
+    const data = await searchAssets({
       nexusUrl,
       username,
       password,
-      query: Object.fromEntries(params.entries()),
+      query: buildSearchQuery(query, continuationToken),
     });
-    return res.json(flattenComponentResults(data));
+    return res.json({
+      continuationToken: data?.continuationToken || null,
+      items: enrichAssetsWithUploader(Array.isArray(data?.items) ? data.items : []),
+    });
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message });
   }

@@ -7,6 +7,16 @@ const APP_UI_KEY = 'nexus-pusher-app-ui';
 export const VALID_PAGES = ['upload', 'browser', 'history', 'ldap'];
 export const DEFAULT_REPO = 'npm';
 
+function readPageFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const page = params.get('page') || '';
+    return VALID_PAGES.includes(page) ? page : '';
+  } catch {
+    return '';
+  }
+}
+
 export function loadJson(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -61,8 +71,9 @@ export function saveTheme(theme) {
 
 export function getInitialAppUi(validRepoIds = []) {
   const stored = loadJson(APP_UI_KEY, {});
+  const pageFromUrl = readPageFromUrl();
   return {
-    activePage: VALID_PAGES.includes(stored?.activePage) ? stored.activePage : 'upload',
+    activePage: pageFromUrl || (VALID_PAGES.includes(stored?.activePage) ? stored.activePage : 'upload'),
     activeRepo: validRepoIds.includes(stored?.activeRepo) ? stored.activeRepo : DEFAULT_REPO,
   };
 }

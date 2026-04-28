@@ -63,7 +63,7 @@ function ClientOnlyZone({ repoType, settings, repoName }) {
             {isCargo ? 'Cargo Uses cargo publish' : 'Conan Uses conan upload'}
           </h4>
           <p className="text-on-surface-variant dark:text-dark-text-muted max-w-2xl">
-            Nexus requires the native {isCargo ? 'Cargo' : 'Conan'} client for this format, so this app can guide the target repository but cannot upload the package file directly.
+            Nexus requires the native {isCargo ? 'Cargo' : 'Conan'} client for this format, so this app guides the target repository and exact publish commands instead of uploading the package file directly.
           </p>
         </div>
         <div className="rounded-2xl bg-slate-50 dark:bg-dark-surface-2 border border-slate-100 dark:border-dark-border px-5 py-4 flex flex-col gap-3">

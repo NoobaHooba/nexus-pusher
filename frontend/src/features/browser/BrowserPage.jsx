@@ -2,23 +2,33 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { apiUrl } from '../../shared/lib/backendApi';
 import { buildNexusBrowseUrl, rewriteNexusAssetUrls, rewriteNexusUrl } from '../../shared/lib/nexusLinks';
 import {
+  applyLocalRefinements,
+  applyServerSearchRefinements,
   buildSearchSuggestions,
+  buildServerQuery,
   compareAssets,
-  DEFAULT_SORT,
+  DEFAULT_SEARCH_STATE,
+  getActiveFilterChips,
   getAssetFileName,
   getAssetName,
   getAssetUploader,
-  getAssetDisplayName,
+  getEffectiveSortState,
+  getLocalRefinements,
+  hasBrowserQueryParams,
+  hasLocalRefinements,
+  loadBrowserSearchState,
+  normalizeSearchState,
   rememberSearchTerm,
+  saveBrowserSearchStateToUrl,
+  SORT_FIELDS,
 } from './browserState';
 import {
-  loadBrowserState,
+  loadBrowserUiPrefs,
   loadSearchHistory,
-  saveBrowserState,
+  saveBrowserUiPrefs,
   saveSearchHistory,
 } from './browserStorage';
 
-// ─── format colour map ────────────────────────────────────────────────────────
 const FORMAT_COLORS = {
   maven2:  'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   npm:     'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
@@ -35,19 +45,23 @@ const FORMAT_COLORS = {
   rubygems:'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
 };
 
-const KNOWN_FORMATS = ['maven2','npm','docker','cargo','conan','pypi','nuget','helm','yum','apt','raw'];
+const KNOWN_FORMATS = ['maven2', 'npm', 'docker', 'cargo', 'conan', 'pypi', 'nuget', 'helm', 'yum', 'apt', 'raw'];
+
 function formatSize(bytes) {
   if (bytes == null) return '—';
-  if (bytes < 1024)              return `${bytes} B`;
-  if (bytes < 1024 * 1024)      return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 function formatDate(iso) {
   if (!iso) return '—';
-  try { return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); }
-  catch { return iso; }
+  try {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    return iso;
+  }
 }
 
 function formatUploader(asset) {
@@ -62,16 +76,14 @@ function fileIcon(path) {
     tgz: 'archive', gz: 'archive', tar: 'archive', 'tar.gz': 'archive',
     deb: 'package_2', rpm: 'package_2', nupkg: 'package_2',
     whl: 'settings', egg: 'settings',
-    tgz2: 'archive', pom: 'description', xml: 'code',
-    json: 'data_object', yaml: 'code', yml: 'code',
-    md: 'description', txt: 'description',
+    pom: 'description', xml: 'code', json: 'data_object',
+    yaml: 'code', yml: 'code', md: 'description', txt: 'description',
     sha1: 'lock', sha256: 'lock', sha512: 'lock', md5: 'lock',
     png: 'image', jpg: 'image', jpeg: 'image', svg: 'image',
   };
   return map[ext] || 'draft';
 }
 
-// ─── api helpers ─────────────────────────────────────────────────────────────
 async function apiFetch(settings, path, body) {
   const res = await fetch(apiUrl(settings, path), {
     method: 'POST',
@@ -83,83 +95,244 @@ async function apiFetch(settings, path, body) {
   return json;
 }
 
-// ─── component ───────────────────────────────────────────────────────────────
+function loadBrowserSession(settings) {
+  const uiPrefs = loadBrowserUiPrefs(settings);
+  let searchState = loadBrowserSearchState({ fallbackSort: uiPrefs.sortState });
+
+  if (!hasBrowserQueryParams()) {
+    searchState = normalizeSearchState({
+      ...searchState,
+      sort: uiPrefs.sortState.field,
+      dir: uiPrefs.sortState.direction,
+    }, { fallbackSort: uiPrefs.sortState });
+  }
+
+  return {
+    uiPrefs,
+    searchState,
+    recentSearches: loadSearchHistory(settings),
+  };
+}
+
+function FilterField({ label, value, onChange, placeholder, type = 'text', helperText, className = '', min, max }) {
+  return (
+    <label className={`flex flex-col gap-1.5 ${className}`}>
+      <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400 dark:text-dark-text-faint">{label}</span>
+      <input
+        type={type}
+        value={value}
+        min={min}
+        max={max}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-2.5 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent/40"
+      />
+      {helperText && <span className="text-[10px] text-slate-400 dark:text-dark-text-faint">{helperText}</span>}
+    </label>
+  );
+}
+
+function SelectField({ label, value, onChange, options, placeholder, className = '' }) {
+  return (
+    <label className={`flex flex-col gap-1.5 ${className}`}>
+      <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400 dark:text-dark-text-faint">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-2.5 text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent/40"
+      >
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function FilterChip({ chip, onRemove }) {
+  const isLocal = chip.scope === 'local';
+  return (
+    <button
+      onClick={() => onRemove(chip.key)}
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+        isLocal
+          ? 'border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-800/40 dark:bg-cyan-900/20 dark:text-cyan-300'
+          : 'border-slate-200 bg-white text-primary dark:border-dark-border dark:bg-dark-surface dark:text-dark-text'
+      }`}
+      title={`Remove ${chip.label}`}
+    >
+      <span className="truncate max-w-[220px]">{chip.label}: {chip.value}</span>
+      {isLocal && <span className="rounded-full bg-cyan-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wider dark:bg-cyan-900/30">Loaded</span>}
+      <span className="material-symbols-outlined text-[14px]">close</span>
+    </button>
+  );
+}
+
+function MobileAssetCard({ asset, onOpen, settings }) {
+  const fileName = getAssetFileName(asset) || '—';
+  const assetName = getAssetName(asset) || fileName;
+  const fmtColor = FORMAT_COLORS[asset.format] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
+
+  return (
+    <article
+      className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-colors hover:bg-slate-50/60 dark:border-dark-border dark:bg-dark-surface dark:hover:bg-dark-surface-2/70"
+      onClick={() => onOpen(asset)}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-primary dark:text-dark-text">{assetName}</p>
+          {fileName !== assetName && (
+            <p className="truncate text-xs text-on-surface-variant dark:text-dark-text-muted">{fileName}</p>
+          )}
+        </div>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${fmtColor}`}>{asset.format || '—'}</span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">Repository</p>
+          <p className="font-mono text-on-surface-variant dark:text-dark-text-muted">{asset.repository || '—'}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">Size</p>
+          <p className="text-on-surface-variant dark:text-dark-text-muted">{asset.fileSize != null ? formatSize(asset.fileSize) : '—'}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">Uploader</p>
+          <p className="truncate text-on-surface-variant dark:text-dark-text-muted">{formatUploader(asset)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">Modified</p>
+          <p className="text-on-surface-variant dark:text-dark-text-muted">{formatDate(asset.lastModified || asset.blobCreated)}</p>
+        </div>
+      </div>
+
+      {asset.path && (
+        <p className="mt-3 truncate rounded-xl bg-slate-50 px-3 py-2 font-mono text-[10px] text-slate-500 dark:bg-dark-surface-2 dark:text-dark-text-faint">
+          {asset.path}
+        </p>
+      )}
+
+      {buildNexusBrowseUrl(settings, asset.repository, asset.path, asset) && (
+        <a
+          href={buildNexusBrowseUrl(settings, asset.repository, asset.path, asset)}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-accent hover:underline"
+        >
+          <span className="material-symbols-outlined text-[13px]">open_in_new</span>
+          Open in Nexus
+        </a>
+      )}
+    </article>
+  );
+}
+
 export default function BrowserPage({ settings }) {
   const { nexusUrl, username, password } = settings || {};
+  const initialSession = useMemo(() => loadBrowserSession(settings), [settings?.nexusUrl, settings?.username]);
 
-  // repos
-  const [repos, setRepos]         = useState([]);
+  const [repos, setRepos] = useState([]);
   const [reposLoading, setReposLoading] = useState(false);
-  const [reposError, setReposError]     = useState(null);
-
-  // filters
-  const [selectedRepo, setSelectedRepo] = useState(() => loadBrowserState(settings).selectedRepo);
-  const [selectedFormat, setSelectedFormat] = useState(() => loadBrowserState(settings).selectedFormat);
-  const [keyword, setKeyword]           = useState(() => loadBrowserState(settings).keyword);
-  const [inputValue, setInputValue]     = useState(() => loadBrowserState(settings).inputValue);
-  const [recentSearches, setRecentSearches] = useState(() => loadSearchHistory(settings));
+  const [reposError, setReposError] = useState(null);
+  const [searchState, setSearchState] = useState(initialSession.searchState);
+  const [keywordInput, setKeywordInput] = useState(initialSession.searchState.keyword);
+  const [uiPrefs, setUiPrefs] = useState(initialSession.uiPrefs);
+  const [recentSearches, setRecentSearches] = useState(initialSession.recentSearches);
   const [repoFilter, setRepoFilter] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
-  const [sortState, setSortState] = useState(() => loadBrowserState(settings).sortState);
-  const debounceRef = useRef(null);
-  const searchBoxRef = useRef(null);
-
-  // results
-  const [results, setResults]           = useState([]);
-  const [loading, setLoading]           = useState(false);
-  const [error, setError]               = useState(null);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [continuationToken, setContinuationToken] = useState(null);
-  const [loadingMore, setLoadingMore]   = useState(false);
-  const [totalLoaded, setTotalLoaded]   = useState(0);
-
-  // detail drawer
-  const [detail, setDetail]             = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  // ── load repos on mount ───────────────────────────────────────────────────
+  const searchBoxRef = useRef(null);
+  const keywordDebounceRef = useRef(null);
+  const searchDebounceRef = useRef(null);
+
+  const updateSearchState = useCallback((updater) => {
+    setSearchState((current) => {
+      const next = typeof updater === 'function' ? updater(current) : updater;
+      return normalizeSearchState(next);
+    });
+  }, []);
+
   useEffect(() => {
-    const nextState = loadBrowserState(settings);
-    setSelectedRepo(nextState.selectedRepo);
-    setSelectedFormat(nextState.selectedFormat);
-    setKeyword(nextState.keyword);
-    setInputValue(nextState.inputValue);
-    setSortState(nextState.sortState);
-    setRecentSearches(loadSearchHistory(settings));
+    const nextSession = loadBrowserSession(settings);
+    setSearchState(nextSession.searchState);
+    setKeywordInput(nextSession.searchState.keyword);
+    setUiPrefs(nextSession.uiPrefs);
+    setRecentSearches(nextSession.recentSearches);
     setRepoFilter('');
     setShowSuggestions(false);
     setHighlightedSuggestion(-1);
   }, [settings?.nexusUrl, settings?.username]);
 
   useEffect(() => {
+    saveBrowserUiPrefs(uiPrefs, settings);
+  }, [uiPrefs, settings?.nexusUrl, settings?.username]);
+
+  useEffect(() => {
+    saveBrowserSearchStateToUrl(searchState);
+  }, [searchState]);
+
+  useEffect(() => {
+    if (!SORT_FIELDS.includes(searchState.sort)) return;
+    setUiPrefs((current) => {
+      if (current.sortState.field === searchState.sort && current.sortState.direction === searchState.dir) {
+        return current;
+      }
+      return {
+        ...current,
+        sortState: {
+          field: searchState.sort,
+          direction: searchState.dir || 'asc',
+        },
+      };
+    });
+  }, [searchState.sort, searchState.dir]);
+
+  useEffect(() => {
     if (!nexusUrl) return;
     setReposLoading(true);
     apiFetch(settings, '/api/browse/repos', { nexusUrl, username, password })
-      .then(data => { setRepos(Array.isArray(data) ? data : []); setReposError(null); })
-      .catch(err => setReposError(err.message))
+      .then((data) => {
+        setRepos(Array.isArray(data) ? data : []);
+        setReposError(null);
+      })
+      .catch((err) => setReposError(err.message))
       .finally(() => setReposLoading(false));
   }, [nexusUrl, username, password, settings]);
 
-  // ── search ───────────────────────────────────────────────────────────────
-  const doSearch = useCallback(async (kw, repo, fmt, token, append) => {
+  const serverQuery = useMemo(() => buildServerQuery(searchState), [searchState]);
+  const localRefinements = useMemo(() => getLocalRefinements(searchState), [searchState]);
+  const activeChips = useMemo(() => getActiveFilterChips(searchState), [searchState]);
+  const localRefinementsActive = useMemo(() => hasLocalRefinements(searchState), [searchState]);
+  const effectiveSort = useMemo(() => getEffectiveSortState(searchState), [searchState]);
+
+  const doSearch = useCallback(async (query, token = '', append = false) => {
     if (!nexusUrl) return;
-    if (!append) setLoading(true);
-    else setLoadingMore(true);
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     setError(null);
+
     try {
       const data = await apiFetch(settings, '/api/browse/search', {
-        nexusUrl, username, password,
-        keyword: kw, repository: repo, format: fmt,
+        nexusUrl,
+        username,
+        password,
         continuationToken: token || undefined,
+        query,
       });
+
       const items = (data.items || []).map((item) => rewriteNexusAssetUrls(settings, item));
-      if (append) {
-        setResults(r => [...r, ...items]);
-        setTotalLoaded(t => t + items.length);
-      } else {
-        setResults(items);
-        setTotalLoaded(items.length);
-      }
+      setResults((current) => (append ? [...current, ...items] : items));
       setContinuationToken(data.continuationToken || null);
     } catch (err) {
       setError(err.message);
@@ -169,102 +342,27 @@ export default function BrowserPage({ settings }) {
     }
   }, [nexusUrl, username, password, settings]);
 
-  // initial + filter change search
   useEffect(() => {
-    doSearch(keyword, selectedRepo, selectedFormat, null, false);
-  }, [keyword, selectedRepo, selectedFormat, doSearch]);
+    if (!nexusUrl) return undefined;
+    setContinuationToken(null);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      doSearch(serverQuery, '', false);
+    }, 250);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [nexusUrl, doSearch, serverQuery]);
 
-  // debounce keyword input
-  const handleInput = (val) => {
-    setInputValue(val);
-    setShowSuggestions(true);
-    setHighlightedSuggestion(-1);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setKeyword(val), 400);
-  };
-
-  const commitSearch = useCallback((value) => {
-    const nextValue = String(value || '').trim();
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    setInputValue(nextValue);
-    setKeyword(nextValue);
-    setShowSuggestions(false);
-    setHighlightedSuggestion(-1);
-    if (!nextValue) return;
-    setRecentSearches((current) => {
-      const next = rememberSearchTerm(current, nextValue);
-      saveSearchHistory(next, settings);
-      return next;
-    });
-  }, [settings]);
-
-  // load more
-  const loadMore = () => {
-    if (continuationToken && !loadingMore)
-      doSearch(keyword, selectedRepo, selectedFormat, continuationToken, true);
-  };
-
-  // ── detail ────────────────────────────────────────────────────────────────
-  const openDetail = async (asset) => {
-    setDetail(asset);
-    if (!asset.id) return;
-    setDetailLoading(true);
-    try {
-      const full = await apiFetch(settings, '/api/browse/asset', { nexusUrl, username, password, id: asset.id });
-      setDetail(rewriteNexusAssetUrls(settings, { ...asset, ...full }));
-    } catch (_) { /* keep the partial asset */ }
-    finally { setDetailLoading(false); }
-  };
-
-  // ── derived ───────────────────────────────────────────────────────────────
-  const availableFormats = [...new Set(repos.map(r => r.format).filter(Boolean))].sort();
-  const filteredRepos = useMemo(() => {
-    const query = repoFilter.trim().toLowerCase();
-    return repos
-      .filter((repo) => {
-        if (!repo?.name) return false;
-        if (selectedFormat && repo.format !== selectedFormat) return false;
-        if (!query) return true;
-        return repo.name.toLowerCase().includes(query);
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [repoFilter, repos, selectedFormat]);
-  const searchSuggestions = buildSearchSuggestions(inputValue, recentSearches, results);
-  const sortedResults = useMemo(() => (
-    [...results].sort((a, b) => compareAssets(a, b, sortState.field, sortState.direction))
-  ), [results, sortState]);
-
-  const toggleSort = useCallback((field) => {
-    setSortState((current) => (
-      current.field === field
-        ? { field, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-        : { field, direction: field === 'lastModified' ? 'desc' : 'asc' }
-    ));
-  }, []);
-
-  const renderSortHeader = (label, field) => {
-    const isActive = sortState.field === field;
-    return (
-      <button
-        onClick={() => toggleSort(field)}
-        className={`inline-flex items-center gap-1.5 transition-colors ${
-          isActive
-            ? 'text-primary dark:text-dark-text'
-            : 'text-on-surface-variant dark:text-dark-text-muted hover:text-primary dark:hover:text-dark-text'
-        }`}
-      >
-        <span>{label}</span>
-        <span className="inline-flex flex-col leading-none">
-          <span className={`material-symbols-outlined text-[14px] -mb-1 ${isActive && sortState.direction === 'asc' ? 'text-accent dark:text-dark-accent' : 'text-slate-300 dark:text-dark-text-faint'}`}>
-            arrow_drop_up
-          </span>
-          <span className={`material-symbols-outlined text-[14px] -mt-1 ${isActive && sortState.direction === 'desc' ? 'text-accent dark:text-dark-accent' : 'text-slate-300 dark:text-dark-text-faint'}`}>
-            arrow_drop_down
-          </span>
-        </span>
-      </button>
-    );
-  };
+  useEffect(() => {
+    if (keywordDebounceRef.current) clearTimeout(keywordDebounceRef.current);
+    keywordDebounceRef.current = setTimeout(() => {
+      updateSearchState((current) => ({ ...current, keyword: keywordInput }));
+    }, 400);
+    return () => {
+      if (keywordDebounceRef.current) clearTimeout(keywordDebounceRef.current);
+    };
+  }, [keywordInput, updateSearchState]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -278,15 +376,176 @@ export default function BrowserPage({ settings }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const availableFormats = useMemo(() => [...new Set(repos.map((repo) => repo.format).filter(Boolean))].sort(), [repos]);
+
+  const filteredRepos = useMemo(() => {
+    const query = repoFilter.trim().toLowerCase();
+    return repos
+      .filter((repo) => {
+        if (!repo?.name) return false;
+        if (searchState.format && repo.format !== searchState.format) return false;
+        if (!query) return true;
+        return repo.name.toLowerCase().includes(query);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [repoFilter, repos, searchState.format]);
+
+  const searchSuggestions = useMemo(
+    () => buildSearchSuggestions(keywordInput, recentSearches, results),
+    [keywordInput, recentSearches, results]
+  );
+
+  const displayedResults = useMemo(() => {
+    const serverRefined = applyServerSearchRefinements(results, searchState);
+    const refined = applyLocalRefinements(serverRefined, localRefinements);
+    if (effectiveSort.field === 'relevance') return refined;
+    return [...refined].sort((a, b) => compareAssets(a, b, effectiveSort.field, effectiveSort.direction));
+  }, [results, searchState, localRefinements, effectiveSort]);
+
+  const commitSearch = useCallback((value) => {
+    const nextValue = String(value || '').trim();
+    if (keywordDebounceRef.current) clearTimeout(keywordDebounceRef.current);
+    setKeywordInput(nextValue);
+    updateSearchState((current) => ({ ...current, keyword: nextValue }));
+    setShowSuggestions(false);
+    setHighlightedSuggestion(-1);
+    if (!nextValue) return;
+    setRecentSearches((current) => {
+      const next = rememberSearchTerm(current, nextValue);
+      saveSearchHistory(next, settings);
+      return next;
+    });
+  }, [settings, updateSearchState]);
+
+  const clearAllFilters = useCallback(() => {
+    if (keywordDebounceRef.current) clearTimeout(keywordDebounceRef.current);
+    setKeywordInput('');
+    updateSearchState(DEFAULT_SEARCH_STATE);
+    setShowSuggestions(false);
+    setHighlightedSuggestion(-1);
+  }, [updateSearchState]);
+
+  const updateField = useCallback((key, value) => {
+    updateSearchState((current) => ({ ...current, [key]: value }));
+  }, [updateSearchState]);
+
+  const selectedRepositoryMeta = useMemo(
+    () => repos.find((repo) => repo?.name === searchState.repository) || null,
+    [repos, searchState.repository]
+  );
+
+  const effectiveSearchFormat = selectedRepositoryMeta?.format || searchState.format || '';
+  const showGroupFilter = effectiveSearchFormat === 'maven2' || Boolean(searchState.group);
+  const searchPlaceholder = showGroupFilter
+    ? 'Search Nexus by keyword, package, group, version...'
+    : 'Search Nexus by keyword, package, version...';
+
+  const updateRepository = useCallback((repository) => {
+    const selected = repos.find((repo) => repo?.name === repository);
+    updateSearchState((current) => ({
+      ...current,
+      repository,
+      format: selected?.format || (repository ? current.format : current.format),
+      group: selected?.format && selected.format !== 'maven2' ? '' : current.group,
+    }));
+  }, [repos, updateSearchState]);
+
+  const updateFormat = useCallback((format) => {
+    updateSearchState((current) => {
+      const currentRepo = repos.find((repo) => repo?.name === current.repository);
+      const shouldClearRepository = currentRepo && format && currentRepo.format !== format;
+      return {
+        ...current,
+        format,
+        repository: shouldClearRepository ? '' : current.repository,
+        group: format && format !== 'maven2' ? '' : current.group,
+      };
+    });
+  }, [repos, updateSearchState]);
+
+  const removeChip = useCallback((key) => {
+    if (key === 'keyword') {
+      setKeywordInput('');
+    }
+    updateSearchState((current) => ({ ...current, [key]: '' }));
+  }, [updateSearchState]);
+
+  const loadMore = useCallback(() => {
+    if (!continuationToken || loadingMore) return;
+    doSearch(serverQuery, continuationToken, true);
+  }, [continuationToken, loadingMore, doSearch, serverQuery]);
+
+  const openDetail = useCallback(async (asset) => {
+    setDetail(asset);
+    if (!asset.id) return;
+    setDetailLoading(true);
+    try {
+      const full = await apiFetch(settings, '/api/browse/asset', { nexusUrl, username, password, id: asset.id });
+      setDetail(rewriteNexusAssetUrls(settings, { ...asset, ...full }));
+    } catch (_) {
+      // keep partial asset detail
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [nexusUrl, username, password, settings]);
+
+  const toggleSort = useCallback((field) => {
+    updateSearchState((current) => {
+      const currentEffective = getEffectiveSortState(current);
+      if (currentEffective.field === field) {
+        const nextDirection = currentEffective.direction === 'asc' ? 'desc' : 'asc';
+        return { ...current, sort: field, dir: nextDirection };
+      }
+      return { ...current, sort: field, dir: field === 'lastModified' ? 'desc' : 'asc' };
+    });
+  }, [updateSearchState]);
+
+  const renderSortHeader = useCallback((label, field) => {
+    const isActive = effectiveSort.field === field;
+    return (
+      <button
+        onClick={() => toggleSort(field)}
+        className={`inline-flex items-center gap-1.5 transition-colors ${
+          isActive
+            ? 'text-primary dark:text-dark-text'
+            : 'text-on-surface-variant dark:text-dark-text-muted hover:text-primary dark:hover:text-dark-text'
+        }`}
+      >
+        <span>{label}</span>
+        <span className="inline-flex flex-col leading-none">
+          <span className={`material-symbols-outlined text-[14px] -mb-1 ${isActive && effectiveSort.direction === 'asc' ? 'text-accent dark:text-dark-accent' : 'text-slate-300 dark:text-dark-text-faint'}`}>
+            arrow_drop_up
+          </span>
+          <span className={`material-symbols-outlined text-[14px] -mt-1 ${isActive && effectiveSort.direction === 'desc' ? 'text-accent dark:text-dark-accent' : 'text-slate-300 dark:text-dark-text-faint'}`}>
+            arrow_drop_down
+          </span>
+        </span>
+      </button>
+    );
+  }, [effectiveSort.field, effectiveSort.direction, toggleSort]);
+
+  const resultSummary = useMemo(() => {
+    if (results.length === 0) return 'No assets loaded yet';
+    if (!localRefinementsActive) {
+      return `${results.length} asset${results.length !== 1 ? 's' : ''} loaded${continuationToken ? ' · more available' : ''}`;
+    }
+    return `${results.length} fetched · ${displayedResults.length} shown after local refinements${continuationToken ? ' · more available from Nexus' : ''}`;
+  }, [results.length, displayedResults.length, localRefinementsActive, continuationToken]);
+
+  const shareSearchUrl = useCallback(() => {
+    navigator.clipboard.writeText(window.location.href);
+  }, []);
+
+  const formatOptions = useMemo(() => (
+    (availableFormats.length > 0 ? availableFormats : KNOWN_FORMATS)
+      .map((format) => ({ value: format, label: format }))
+  ), [availableFormats]);
+
   useEffect(() => {
-    saveBrowserState({
-      selectedRepo,
-      selectedFormat,
-      inputValue,
-      keyword,
-      sortState,
-    }, settings);
-  }, [selectedRepo, selectedFormat, inputValue, keyword, sortState, settings?.nexusUrl, settings?.username]);
+    if (!selectedRepositoryMeta) return;
+    if (searchState.format === selectedRepositoryMeta.format) return;
+    updateSearchState((current) => ({ ...current, format: selectedRepositoryMeta.format || '' }));
+  }, [selectedRepositoryMeta, searchState.format, updateSearchState]);
 
   if (!nexusUrl) {
     return (
@@ -300,17 +559,13 @@ export default function BrowserPage({ settings }) {
 
   return (
     <div className="density-page flex flex-col gap-6">
-      {/* Page header */}
       <div>
         <h2 className="text-4xl font-extrabold tracking-tight text-primary dark:text-dark-text">Repository Browser</h2>
-        <p className="text-on-surface-variant dark:text-dark-text-muted mt-1">Search and explore artifacts across all your Nexus repositories.</p>
+        <p className="text-on-surface-variant dark:text-dark-text-muted mt-1">Advanced search across Nexus repositories with shareable filters and loaded-result refinements.</p>
       </div>
 
-      {/* Main layout: repo sidebar + content */}
-      <div className="flex gap-6 items-start">
-
-        {/* ── Repo sidebar ──────────────────────────────────────────────── */}
-        <aside className="w-56 flex-shrink-0 bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
+      <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
+        <aside className="w-full xl:w-64 xl:flex-shrink-0 bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 dark:border-dark-border space-y-3">
             <p className="text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Repositories</p>
             <div className="relative">
@@ -323,23 +578,22 @@ export default function BrowserPage({ settings }) {
               />
             </div>
           </div>
+
           {reposLoading && (
             <div className="flex flex-col gap-2 p-3">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="skeleton skeleton-text h-8 rounded-lg" />
-              ))}
+              {[...Array(5)].map((_, i) => <div key={i} className="h-8 rounded-lg bg-slate-100 dark:bg-dark-surface-2 animate-pulse" />)}
             </div>
           )}
-          {reposError && (
-            <p className="text-xs text-rose-500 dark:text-rose-400 p-4">{reposError}</p>
-          )}
+
+          {reposError && <p className="text-xs text-rose-500 dark:text-rose-400 p-4">{reposError}</p>}
+
           {!reposLoading && !reposError && (
             <ul role="list" className="py-2 max-h-[600px] overflow-y-auto custom-scrollbar">
               <li>
                 <button
-                  onClick={() => setSelectedRepo('')}
+                  onClick={() => updateRepository('')}
                   className={`w-full text-left px-4 py-2 text-sm font-medium transition-colors ${
-                    selectedRepo === ''
+                    searchState.repository === ''
                       ? 'bg-accent-dim/40 dark:bg-dark-accent-dim text-accent dark:text-dark-accent font-bold'
                       : 'text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2'
                   }`}
@@ -347,12 +601,12 @@ export default function BrowserPage({ settings }) {
                   All repositories
                 </button>
               </li>
-              {filteredRepos.map(repo => (
+              {filteredRepos.map((repo) => (
                 <li key={repo.name}>
                   <button
-                    onClick={() => setSelectedRepo(repo.name)}
+                    onClick={() => updateRepository(repo.name)}
                     className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                      selectedRepo === repo.name
+                      searchState.repository === repo.name
                         ? 'bg-accent-dim/40 dark:bg-dark-accent-dim text-accent dark:text-dark-accent font-bold'
                         : 'text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2'
                     }`}
@@ -375,8 +629,8 @@ export default function BrowserPage({ settings }) {
                 <li className="px-4 py-6 text-xs text-slate-400 dark:text-dark-text-faint">
                   {repoFilter
                     ? `No repositories match "${repoFilter}".`
-                    : selectedFormat
-                      ? `No ${selectedFormat} repositories available.`
+                    : searchState.format
+                      ? `No ${searchState.format} repositories available.`
                       : 'No repositories available.'}
                 </li>
               )}
@@ -384,240 +638,393 @@ export default function BrowserPage({ settings }) {
           )}
         </aside>
 
-        {/* ── Content area ────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col gap-4 min-w-0">
+        <div className="min-w-0 flex-1 flex flex-col gap-4">
+          <div className="sticky top-6 z-20">
+            <div className="rounded-3xl border border-slate-100 bg-white/95 p-5 shadow-sm backdrop-blur dark:border-dark-border dark:bg-dark-surface/95">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                  <div ref={searchBoxRef} className="relative flex-1 min-w-[260px]">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint text-[20px]">search</span>
+                    <input
+                      value={keywordInput}
+                      onChange={(e) => {
+                        setKeywordInput(e.target.value);
+                        setShowSuggestions(true);
+                        setHighlightedSuggestion(-1);
+                      }}
+                      onFocus={() => setShowSuggestions(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowDown') {
+                          if (searchSuggestions.length === 0) return;
+                          e.preventDefault();
+                          setShowSuggestions(true);
+                          setHighlightedSuggestion((current) => (current >= searchSuggestions.length - 1 ? 0 : current + 1));
+                        } else if (e.key === 'ArrowUp') {
+                          if (searchSuggestions.length === 0) return;
+                          e.preventDefault();
+                          setShowSuggestions(true);
+                          setHighlightedSuggestion((current) => (current <= 0 ? searchSuggestions.length - 1 : current - 1));
+                        } else if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const suggested = highlightedSuggestion >= 0 ? searchSuggestions[highlightedSuggestion] : null;
+                          commitSearch(suggested?.value || keywordInput);
+                        } else if (e.key === 'Escape') {
+                          setShowSuggestions(false);
+                          setHighlightedSuggestion(-1);
+                        }
+                      }}
+                      placeholder={searchPlaceholder}
+                      className="w-full rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface pl-10 pr-10 py-3 text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
+                    />
+                    {keywordInput && (
+                      <button
+                        onClick={() => {
+                          setKeywordInput('');
+                          commitSearch('');
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint hover:text-slate-600 dark:hover:text-dark-text"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">close</span>
+                      </button>
+                    )}
+                    {showSuggestions && searchSuggestions.length > 0 && (
+                      <div className="absolute top-[calc(100%+0.5rem)] left-0 right-0 z-20 overflow-hidden rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-xl dark:shadow-black/30">
+                        <ul className="py-2">
+                          {searchSuggestions.map((suggestion, index) => (
+                            <li key={`${suggestion.kind}-${suggestion.value}`}>
+                              <button
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  commitSearch(suggestion.value);
+                                }}
+                                onMouseEnter={() => setHighlightedSuggestion(index)}
+                                className={`flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors ${
+                                  highlightedSuggestion === index
+                                    ? 'bg-slate-50 dark:bg-dark-surface-2'
+                                    : 'hover:bg-slate-50 dark:hover:bg-dark-surface-2'
+                                }`}
+                              >
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-semibold text-primary dark:text-dark-text">
+                                    {suggestion.value}
+                                  </span>
+                                  {suggestion.hint && (
+                                    <span className="block truncate text-[11px] text-slate-400 dark:text-dark-text-faint">
+                                      {suggestion.hint}
+                                    </span>
+                                  )}
+                                </span>
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                  suggestion.kind === 'recent'
+                                    ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'
+                                    : 'bg-accent-dim/50 text-accent dark:bg-dark-accent-dim dark:text-dark-accent'
+                                }`}>
+                                  {suggestion.kind === 'recent' ? 'Recent' : 'Match'}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
 
-          {/* Search bar */}
-          <div className="flex gap-3 items-center flex-wrap">
-            <div ref={searchBoxRef} className="relative flex-1 min-w-[260px]">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint text-[20px]">search</span>
-              <input
-                value={inputValue}
-                onChange={e => handleInput(e.target.value)}
-                onFocus={() => setShowSuggestions(true)}
-                onKeyDown={(e) => {
-                  if (e.key === 'ArrowDown') {
-                    if (searchSuggestions.length === 0) return;
-                    e.preventDefault();
-                    setShowSuggestions(true);
-                    setHighlightedSuggestion((current) => (
-                      current >= searchSuggestions.length - 1 ? 0 : current + 1
-                    ));
-                  } else if (e.key === 'ArrowUp') {
-                    if (searchSuggestions.length === 0) return;
-                    e.preventDefault();
-                    setShowSuggestions(true);
-                    setHighlightedSuggestion((current) => (
-                      current <= 0 ? searchSuggestions.length - 1 : current - 1
-                    ));
-                  } else if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const suggested = highlightedSuggestion >= 0 ? searchSuggestions[highlightedSuggestion] : null;
-                    commitSearch(suggested?.value || inputValue);
-                  } else if (e.key === 'Escape') {
-                    setShowSuggestions(false);
-                    setHighlightedSuggestion(-1);
-                  }
-                }}
-                placeholder="Search artifacts by name, group, version…"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 bg-white dark:bg-dark-surface placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
-              />
-              {inputValue && (
-                <button
-                  onClick={() => {
-                    setInputValue('');
-                    setKeyword('');
-                    setShowSuggestions(false);
-                    setHighlightedSuggestion(-1);
-                  }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint hover:text-slate-600 dark:hover:text-dark-text"
-                >
-                  <span className="material-symbols-outlined text-[18px]">close</span>
-                </button>
-              )}
-              {showSuggestions && searchSuggestions.length > 0 && (
-                <div className="absolute top-[calc(100%+0.5rem)] left-0 right-0 z-20 overflow-hidden rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-xl dark:shadow-black/30">
-                  <ul className="py-2">
-                    {searchSuggestions.map((suggestion, index) => (
-                      <li key={`${suggestion.kind}-${suggestion.value}`}>
-                        <button
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            commitSearch(suggestion.value);
-                          }}
-                          onMouseEnter={() => setHighlightedSuggestion(index)}
-                          className={`flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors ${
-                            highlightedSuggestion === index
-                              ? 'bg-slate-50 dark:bg-dark-surface-2'
-                              : 'hover:bg-slate-50 dark:hover:bg-dark-surface-2'
-                          }`}
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-semibold text-primary dark:text-dark-text">
-                              {suggestion.value}
-                            </span>
-                            {suggestion.hint && (
-                              <span className="block truncate text-[11px] text-slate-400 dark:text-dark-text-faint">
-                                {suggestion.hint}
-                              </span>
-                            )}
-                          </span>
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                            suggestion.kind === 'recent'
-                              ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'
-                              : 'bg-accent-dim/50 text-accent dark:bg-dark-accent-dim dark:text-dark-accent'
-                          }`}>
-                            {suggestion.kind === 'recent' ? 'Recent' : 'Match'}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => commitSearch(keywordInput)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-black dark:bg-dark-accent dark:text-dark-bg dark:hover:opacity-90"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">search</span>
+                      Search
+                    </button>
+                    <button
+                      onClick={clearAllFilters}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-on-surface-variant transition-colors hover:bg-slate-50 dark:border-dark-border dark:text-dark-text-muted dark:hover:bg-dark-surface-2"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">filter_alt_off</span>
+                      Clear All
+                    </button>
+                    <button
+                      onClick={() => setUiPrefs((current) => ({ ...current, filtersOpen: !current.filtersOpen }))}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-on-surface-variant transition-colors hover:bg-slate-50 dark:border-dark-border dark:text-dark-text-muted dark:hover:bg-dark-surface-2"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">tune</span>
+                      Filters
+                      <span className="rounded-full bg-accent-dim/50 px-2 py-0.5 text-[10px] text-accent dark:bg-dark-accent-dim dark:text-dark-accent">
+                        {activeChips.length}
+                      </span>
+                    </button>
+                  </div>
                 </div>
+
+                {activeChips.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {activeChips.map((chip) => (
+                      <FilterChip key={`${chip.scope}-${chip.key}`} chip={chip} onRemove={removeChip} />
+                    ))}
+                  </div>
+                )}
+
+                {uiPrefs.filtersOpen && (
+                  <div className="flex flex-col gap-4">
+                    <section className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-dark-border dark:bg-dark-surface-2/70">
+                      <div className="mb-4 flex items-start justify-between gap-4 flex-wrap">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">Search Nexus</p>
+                          <p className="mt-1 text-sm text-on-surface-variant dark:text-dark-text-muted">These filters query Nexus directly and stay shareable in the URL.</p>
+                        </div>
+                        {selectedRepositoryMeta && (
+                          <span className="rounded-full bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:bg-dark-surface dark:text-dark-text-muted">
+                            Repo locks format to {selectedRepositoryMeta.format}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-3 items-end">
+                        <SelectField
+                          label="Repository"
+                          value={searchState.repository}
+                          onChange={updateRepository}
+                          placeholder="All repositories"
+                          className="min-w-[200px] flex-1"
+                          options={repos.filter((repo) => repo?.name).sort((a, b) => a.name.localeCompare(b.name)).map((repo) => ({
+                            value: repo.name,
+                            label: repo.name,
+                          }))}
+                        />
+                        <SelectField
+                          label="Format"
+                          value={searchState.format}
+                          onChange={updateFormat}
+                          placeholder="All formats"
+                          className="min-w-[180px] flex-1"
+                          options={formatOptions}
+                        />
+                        <FilterField className="min-w-[180px] flex-1" label="Package Name" value={searchState.name} onChange={(value) => updateField('name', value)} placeholder="org.osgi.core" />
+                        {showGroupFilter && (
+                          <FilterField className="min-w-[180px] flex-1" label="Group" value={searchState.group} onChange={(value) => updateField('group', value)} placeholder="org.osgi" />
+                        )}
+                        <FilterField className="min-w-[160px] flex-1" label="Version" value={searchState.version} onChange={(value) => updateField('version', value)} placeholder="4.3.1" />
+                        {(searchState.format === 'maven2'
+                          || searchState.mavenGroupId
+                          || searchState.mavenArtifactId
+                          || searchState.mavenBaseVersion
+                          || searchState.classifier
+                          || searchState.extension) && (
+                          <>
+                            <FilterField className="min-w-[180px] flex-1" label="Group ID" value={searchState.mavenGroupId} onChange={(value) => updateField('mavenGroupId', value)} placeholder="org.osgi" />
+                            <FilterField className="min-w-[180px] flex-1" label="Artifact ID" value={searchState.mavenArtifactId} onChange={(value) => updateField('mavenArtifactId', value)} placeholder="org.osgi.core" />
+                            <FilterField className="min-w-[180px] flex-1" label="Base Version" value={searchState.mavenBaseVersion} onChange={(value) => updateField('mavenBaseVersion', value)} placeholder="1.2.3-SNAPSHOT" />
+                            <FilterField className="min-w-[160px] flex-1" label="Classifier" value={searchState.classifier} onChange={(value) => updateField('classifier', value)} placeholder="sources" />
+                            <FilterField className="min-w-[140px] flex-1" label="Extension" value={searchState.extension} onChange={(value) => updateField('extension', value)} placeholder="jar" />
+                          </>
+                        )}
+                      </div>
+                    </section>
+
+                    <div className="flex flex-col gap-3">
+                      <button
+                        onClick={() => setUiPrefs((current) => ({ ...current, localFiltersOpen: !current.localFiltersOpen }))}
+                        className="inline-flex w-fit items-center gap-2 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2.5 text-sm font-bold text-cyan-700 transition-colors hover:bg-cyan-100 dark:border-cyan-900/30 dark:bg-cyan-900/20 dark:text-cyan-300 dark:hover:bg-cyan-900/30"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">tune</span>
+                        Advanced Filters
+                        <span className="material-symbols-outlined text-[16px]">{uiPrefs.localFiltersOpen ? 'expand_less' : 'expand_more'}</span>
+                      </button>
+
+                      {uiPrefs.localFiltersOpen && (
+                        <section className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4 dark:border-cyan-900/30 dark:bg-cyan-900/10">
+                          <div className="mb-4">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-600 dark:text-cyan-300">Refine Loaded Results Only</p>
+                              <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-bold text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">Local</span>
+                            </div>
+                            <p className="mt-1 text-sm text-on-surface-variant dark:text-dark-text-muted">These filters do not hit Nexus again. They only refine what is currently loaded.</p>
+                          </div>
+                          <div className="flex flex-wrap gap-3 items-end">
+                            <FilterField className="min-w-[180px] flex-1" label="Path Contains" value={searchState.path} onChange={(value) => updateField('path', value)} placeholder="org/osgi/" />
+                            <FilterField className="min-w-[180px] flex-1" label="Uploaded By" value={searchState.uploadedBy} onChange={(value) => updateField('uploadedBy', value)} placeholder="admin" />
+                            <FilterField className="min-w-[150px] flex-1" label="Size Min" value={searchState.sizeMin} onChange={(value) => updateField('sizeMin', value)} placeholder="0" type="number" min="0" helperText="Bytes" />
+                            <FilterField className="min-w-[150px] flex-1" label="Size Max" value={searchState.sizeMax} onChange={(value) => updateField('sizeMax', value)} placeholder="1048576" type="number" min="0" helperText="Bytes" />
+                            <FilterField className="min-w-[170px] flex-1" label="Modified From" value={searchState.modifiedFrom} onChange={(value) => updateField('modifiedFrom', value)} type="date" />
+                            <FilterField className="min-w-[170px] flex-1" label="Modified To" value={searchState.modifiedTo} onChange={(value) => updateField('modifiedTo', value)} type="date" />
+                          </div>
+                        </section>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-slate-500 dark:text-dark-text-faint">{resultSummary}</span>
+              {localRefinementsActive && (
+                <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">
+                  Loaded results only
+                </span>
+              )}
+              {effectiveSort.field === 'relevance' && (
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:bg-dark-surface-2 dark:text-dark-text-muted">
+                  Relevance
+                </span>
               )}
             </div>
 
-            {/* Format filter chips */}
             <div className="flex gap-1.5 flex-wrap">
               <button
-                onClick={() => setSelectedFormat('')}
+                onClick={() => updateField('format', '')}
                 className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors border ${
-                  selectedFormat === ''
+                  searchState.format === ''
                     ? 'bg-primary dark:bg-dark-accent text-white dark:text-dark-bg border-primary dark:border-dark-accent'
                     : 'bg-white dark:bg-dark-surface text-on-surface-variant dark:text-dark-text-muted border-slate-200 dark:border-dark-border hover:border-slate-300 dark:hover:border-slate-600'
                 }`}
               >
                 All
               </button>
-              {(availableFormats.length > 0 ? availableFormats : KNOWN_FORMATS).map(fmt => (
+              {(availableFormats.length > 0 ? availableFormats : KNOWN_FORMATS).map((format) => (
                 <button
-                  key={fmt}
-                  onClick={() => setSelectedFormat(fmt === selectedFormat ? '' : fmt)}
+                  key={format}
+                  onClick={() => updateField('format', searchState.format === format ? '' : format)}
                   className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors border ${
-                    selectedFormat === fmt
+                    searchState.format === format
                       ? 'bg-primary dark:bg-dark-accent text-white dark:text-dark-bg border-primary dark:border-dark-accent'
-                      : `${FORMAT_COLORS[fmt] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'} border-transparent hover:border-slate-300 dark:hover:border-slate-600`
+                      : `${FORMAT_COLORS[format] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'} border-transparent hover:border-slate-300 dark:hover:border-slate-600`
                   }`}
                 >
-                  {fmt}
+                  {format}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Results count */}
-          {!loading && (
-            <p className="text-xs text-slate-400 dark:text-dark-text-faint font-medium">
-              {results.length === 0 && !error ? 'No assets found' : `${totalLoaded} asset${totalLoaded !== 1 ? 's' : ''} loaded`}
-              {continuationToken ? ' · more available' : ''}
-            </p>
-          )}
-
-          {/* Error */}
           {error && (
-            <div className="flex items-center gap-3 p-4 bg-rose-50 dark:bg-rose-900/20 rounded-xl border border-rose-100 dark:border-rose-800/40">
+            <div className="flex items-center gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-800/40 dark:bg-rose-900/20">
               <span className="material-symbols-outlined text-rose-400 dark:text-rose-300">error</span>
               <p className="text-sm text-rose-600 dark:text-rose-300 font-medium">{error}</p>
             </div>
           )}
 
-          {/* Loading skeleton */}
           {loading && (
             <div className="grid grid-cols-1 gap-2">
               {[...Array(6)].map((_, i) => (
-                <div key={i} className="skeleton h-16 rounded-xl" />
+                <div key={i} className="h-16 rounded-xl bg-slate-100 dark:bg-dark-surface-2 animate-pulse" />
               ))}
             </div>
           )}
 
-          {/* Results table */}
-          {!loading && results.length > 0 && (
-            <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
-              <table className="density-table w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 dark:border-dark-border bg-slate-50/60 dark:bg-dark-surface-2">
-                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Asset', 'asset')}</th>
-                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Uploader', 'uploader')}</th>
-                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Repository', 'repository')}</th>
-                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Format', 'format')}</th>
-                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Size', 'size')}</th>
-                    <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Last Modified', 'lastModified')}</th>
-                    <th className="px-4 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedResults.map((asset, i) => {
-                    const fileName = getAssetFileName(asset) || '—';
-                    const assetName = getAssetName(asset) || fileName;
-                    const uploader = formatUploader(asset);
-                    const icon = fileIcon(asset.path || '');
-                    const fmtColor = FORMAT_COLORS[asset.format] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
-                    return (
-                      <tr
-                        key={asset.id || i}
-                        className="border-b border-slate-50 dark:border-dark-border hover:bg-slate-50/60 dark:hover:bg-dark-surface-2/70 transition-colors cursor-pointer"
-                        onClick={() => openDetail(asset)}
-                      >
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2.5">
-                            <span className="material-symbols-outlined text-slate-300 dark:text-dark-text-faint text-[18px] flex-shrink-0">{icon}</span>
-                            <div className="min-w-0">
-                              <p className="font-semibold text-primary dark:text-dark-text truncate max-w-[280px]" title={assetName}>{assetName}</p>
-                              {fileName !== assetName && (
-                                <p className="text-[11px] text-on-surface-variant dark:text-dark-text-muted truncate max-w-[280px]" title={fileName}>
-                                  File: {fileName}
+          {!loading && displayedResults.length > 0 && (
+            <>
+              <div className="grid grid-cols-1 gap-3 lg:hidden">
+                {displayedResults.map((asset, index) => (
+                  <MobileAssetCard
+                    key={asset.id || `${asset.path}-${index}`}
+                    asset={asset}
+                    onOpen={openDetail}
+                    settings={settings}
+                  />
+                ))}
+              </div>
+
+              <div className="hidden lg:block bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
+                <table className="density-table w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 dark:border-dark-border bg-slate-50/60 dark:bg-dark-surface-2">
+                      <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Asset', 'asset')}</th>
+                      <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Uploader', 'uploader')}</th>
+                      <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Repository', 'repository')}</th>
+                      <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Format', 'format')}</th>
+                      <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Size', 'size')}</th>
+                      <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Last Modified', 'lastModified')}</th>
+                      <th className="px-4 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedResults.map((asset, index) => {
+                      const fileName = getAssetFileName(asset) || '—';
+                      const assetName = getAssetName(asset) || fileName;
+                      const icon = fileIcon(asset.path || '');
+                      const fmtColor = FORMAT_COLORS[asset.format] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
+
+                      return (
+                        <tr
+                          key={asset.id || `${asset.path}-${index}`}
+                          className="border-b border-slate-50 dark:border-dark-border hover:bg-slate-50/60 dark:hover:bg-dark-surface-2/70 transition-colors cursor-pointer"
+                          onClick={() => openDetail(asset)}
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <span className="material-symbols-outlined text-slate-300 dark:text-dark-text-faint text-[18px] flex-shrink-0">{icon}</span>
+                              <div className="min-w-0">
+                                <p className="font-semibold text-primary dark:text-dark-text truncate max-w-[320px]" title={assetName}>{assetName}</p>
+                                {fileName !== assetName && (
+                                  <p className="text-[11px] text-on-surface-variant dark:text-dark-text-muted truncate max-w-[320px]" title={fileName}>
+                                    File: {fileName}
+                                  </p>
+                                )}
+                                {asset.path && (
+                                  <p className="text-[10px] text-slate-400 dark:text-dark-text-faint font-mono truncate max-w-[320px]" title={asset.path}>{asset.path}</p>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-col gap-0.5">
+                              <p className="text-xs font-medium text-on-surface-variant dark:text-dark-text-muted">{formatUploader(asset)}</p>
+                              {asset.uploadedAt && (
+                                <p className="text-[10px] text-slate-400 dark:text-dark-text-faint whitespace-nowrap">
+                                  {formatDate(asset.uploadedAt)}
                                 </p>
                               )}
-                              {asset.path && (
-                                <p className="text-[10px] text-slate-400 dark:text-dark-text-faint font-mono truncate max-w-[280px]" title={asset.path}>{asset.path}</p>
-                              )}
                             </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col gap-0.5">
-                            <p className="text-xs font-medium text-on-surface-variant dark:text-dark-text-muted">
-                              {uploader}
-                            </p>
-                            {asset.uploadedAt && (
-                              <p className="text-[10px] text-slate-400 dark:text-dark-text-faint whitespace-nowrap">
-                                {formatDate(asset.uploadedAt)}
-                              </p>
+                          </td>
+                          <td className="px-4 py-3 text-xs font-mono text-on-surface-variant dark:text-dark-text-muted">{asset.repository || '—'}</td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${fmtColor}`}>{asset.format || '—'}</span>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-on-surface-variant dark:text-dark-text-muted tabular-nums">
+                            {asset.fileSize != null ? formatSize(asset.fileSize) : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-on-surface-variant dark:text-dark-text-muted whitespace-nowrap">
+                            {formatDate(asset.lastModified || asset.blobCreated)}
+                          </td>
+                          <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                            {buildNexusBrowseUrl(settings, asset.repository, asset.path, asset) && (
+                              <a
+                                href={buildNexusBrowseUrl(settings, asset.repository, asset.path, asset)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-bold text-accent hover:underline whitespace-nowrap"
+                              >
+                                <span className="material-symbols-outlined text-[13px]">open_in_new</span>
+                                Open
+                              </a>
                             )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-xs font-mono text-on-surface-variant dark:text-dark-text-muted">{asset.repository || '—'}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${fmtColor}`}>{asset.format || '—'}</span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-on-surface-variant dark:text-dark-text-muted tabular-nums">
-                          {asset.fileSize != null ? formatSize(asset.fileSize) : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-on-surface-variant dark:text-dark-text-muted whitespace-nowrap">
-                          {formatDate(asset.lastModified || asset.blobCreated)}
-                        </td>
-                        <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                          {buildNexusBrowseUrl(settings, asset.repository, asset.path, asset) && (
-                            <a
-                              href={buildNexusBrowseUrl(settings, asset.repository, asset.path, asset)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs font-bold text-accent hover:underline whitespace-nowrap"
-                            >
-                              <span className="material-symbols-outlined text-[13px]">open_in_new</span>
-                              Open
-                            </a>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
 
-              {/* Load more */}
+                {continuationToken && (
+                  <div className="px-4 py-4 border-t border-slate-50 dark:border-dark-border flex justify-center">
+                    <button
+                      onClick={loadMore}
+                      disabled={loadingMore}
+                      className="flex items-center gap-2 px-6 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-50"
+                    >
+                      {loadingMore
+                        ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading…</>
+                        : <><span className="material-symbols-outlined text-[16px]">expand_more</span> Load More</>}
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {continuationToken && (
-                <div className="px-4 py-4 border-t border-slate-50 dark:border-dark-border flex justify-center">
+                <div className="lg:hidden flex justify-center">
                   <button
                     onClick={loadMore}
                     disabled={loadingMore}
@@ -625,33 +1032,49 @@ export default function BrowserPage({ settings }) {
                   >
                     {loadingMore
                       ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading…</>
-                      : <><span className="material-symbols-outlined text-[16px]">expand_more</span> Load more</>}
+                      : <><span className="material-symbols-outlined text-[16px]">expand_more</span> Load More</>}
                   </button>
                 </div>
               )}
-            </div>
+            </>
           )}
 
-          {/* Empty state */}
           {!loading && !error && results.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border text-center gap-3">
               <span className="material-symbols-outlined text-slate-200 dark:text-dark-border text-[56px]">manage_search</span>
               <p className="font-bold text-on-surface-variant dark:text-dark-text-muted">No assets found</p>
-              <p className="text-sm text-slate-400 dark:text-dark-text-faint max-w-xs">Try a different keyword, select a repository, or clear the format filter.</p>
+              <p className="text-sm text-slate-400 dark:text-dark-text-faint max-w-xs">Try a different keyword, adjust the Nexus filters, or broaden the repository/format scope.</p>
+            </div>
+          )}
+
+          {!loading && !error && results.length > 0 && displayedResults.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-dark-surface rounded-2xl border border-cyan-100 dark:border-cyan-900/30 text-center gap-3">
+              <span className="material-symbols-outlined text-cyan-300 dark:text-cyan-500 text-[56px]">filter_alt</span>
+              <p className="font-bold text-on-surface-variant dark:text-dark-text-muted">No matching loaded results</p>
+              <p className="text-sm text-slate-400 dark:text-dark-text-faint max-w-xs">Nexus returned assets, but the local refinement layer filtered all currently loaded rows out.</p>
+              {continuationToken && (
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="mt-2 inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-on-surface-variant transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-dark-border dark:text-dark-text-muted dark:hover:bg-dark-surface-2"
+                >
+                  {loadingMore
+                    ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading…</>
+                    : <><span className="material-symbols-outlined text-[16px]">expand_more</span> Load More</>}
+                </button>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Detail drawer ───────────────────────────────────────────────── */}
       {detail && (
         <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setDetail(null)}>
           <div className="absolute inset-0 bg-black/30 dark:bg-black/60 backdrop-blur-sm" />
           <div
             className="relative bg-white dark:bg-dark-surface w-full max-w-lg h-full shadow-2xl dark:shadow-black/40 overflow-y-auto flex flex-col"
-            onClick={e => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* Drawer header */}
             <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-dark-border">
               <div className="flex items-center gap-3">
                 <span className="material-symbols-outlined text-[22px] text-slate-400 dark:text-dark-text-faint">{fileIcon(detail.path || '')}</span>
@@ -666,12 +1089,11 @@ export default function BrowserPage({ settings }) {
 
             {detailLoading ? (
               <div className="flex flex-col gap-3 p-6">
-                {[...Array(6)].map((_, i) => <div key={i} className="skeleton skeleton-text" />)}
+                {[...Array(6)].map((_, i) => <div key={i} className="h-4 rounded bg-slate-100 dark:bg-dark-surface-2 animate-pulse" />)}
               </div>
             ) : (
               <div className="flex flex-col gap-6 p-6">
-                {/* Action buttons */}
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                   {buildNexusBrowseUrl(settings, detail.repository, detail.path, detail) && (
                     <a
                       href={buildNexusBrowseUrl(settings, detail.repository, detail.path, detail)}
@@ -703,38 +1125,63 @@ export default function BrowserPage({ settings }) {
                       Copy Nexus Link
                     </button>
                   )}
+                  <button
+                    onClick={shareSearchUrl}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">share</span>
+                    Share Search
+                  </button>
                 </div>
 
-                {/* Metadata grid */}
+                {activeChips.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">Active Filters</p>
+                    <div className="flex flex-wrap gap-2">
+                      {activeChips.map((chip) => (
+                        <span
+                          key={`${chip.scope}-${chip.key}`}
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                            chip.scope === 'local'
+                              ? 'border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-800/40 dark:bg-cyan-900/20 dark:text-cyan-300'
+                              : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-dark-border dark:bg-dark-surface-2 dark:text-dark-text-muted'
+                          }`}
+                        >
+                          {chip.label}: {chip.value}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                   {[
-                    ['Asset Name',    getAssetName(detail)],
-                    ['File Name',     getAssetFileName(detail)],
-                    ['Uploaded By',   formatUploader(detail)],
-                    ['Uploaded At',   detail.uploadedAt ? formatDate(detail.uploadedAt) : null],
-                    ['Path',          detail.path],
-                    ['Repository',    detail.repository],
-                    ['Format',        detail.format],
-                    ['Size',          detail.fileSize != null ? formatSize(detail.fileSize) : null],
-                    ['Content Type',  detail.contentType],
+                    ['Asset Name', getAssetName(detail)],
+                    ['File Name', getAssetFileName(detail)],
+                    ['Uploaded By', formatUploader(detail)],
+                    ['Uploaded At', detail.uploadedAt ? formatDate(detail.uploadedAt) : null],
+                    ['Path', detail.path],
+                    ['Repository', detail.repository],
+                    ['Format', detail.format],
+                    ['Size', detail.fileSize != null ? formatSize(detail.fileSize) : null],
+                    ['Content Type', detail.contentType],
                     ['Last Modified', formatDate(detail.lastModified || detail.blobCreated)],
-                    ['ID',            detail.id],
-                  ].filter(([, v]) => v).map(([label, val]) => (
+                    ['ID', detail.id],
+                  ].filter(([, value]) => value).map(([label, value]) => (
                     <div key={label} className="flex flex-col gap-0.5">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">{label}</p>
-                      <p className="text-sm font-medium text-primary dark:text-dark-text break-all">{val}</p>
+                      <p className="text-sm font-medium text-primary dark:text-dark-text break-all">{value}</p>
                     </div>
                   ))}
                 </div>
 
-                {/* Checksums */}
                 {detail.checksum && Object.keys(detail.checksum).length > 0 && (
                   <div className="flex flex-col gap-3">
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">Checksums</p>
-                    {Object.entries(detail.checksum).map(([algo, val]) => (
+                    {Object.entries(detail.checksum).map(([algo, value]) => (
                       <div key={algo} className="flex flex-col gap-0.5">
                         <p className="text-[10px] font-bold uppercase text-slate-400 dark:text-dark-text-faint">{algo}</p>
-                        <p className="text-[11px] font-mono text-on-surface-variant dark:text-dark-text-muted break-all bg-slate-50 dark:bg-dark-surface-2 px-3 py-2 rounded-lg">{val}</p>
+                        <p className="text-[11px] font-mono text-on-surface-variant dark:text-dark-text-muted break-all bg-slate-50 dark:bg-dark-surface-2 px-3 py-2 rounded-lg">{value}</p>
                       </div>
                     ))}
                   </div>

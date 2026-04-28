@@ -16,6 +16,17 @@ import {
 } from './storage';
 import { DEFAULT_RUNTIME_CONFIG, fetchRuntimeConfig } from './runtimeConfig';
 
+function syncPageToUrl(activePage) {
+  try {
+    const url = new URL(window.location.href);
+    if (activePage) url.searchParams.set('page', activePage);
+    else url.searchParams.delete('page');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch (_) {
+    // ignore browser history failures
+  }
+}
+
 export function useAppShellState() {
   const validRepoIds = useMemo(() => REPO_TYPES.map(({ id }) => id), []);
   const initialAppUi = useMemo(() => getInitialAppUi(validRepoIds), [validRepoIds]);
@@ -47,6 +58,10 @@ export function useAppShellState() {
   useEffect(() => {
     saveAppUi({ activePage, activeRepo });
   }, [activePage, activeRepo]);
+
+  useEffect(() => {
+    syncPageToUrl(activePage);
+  }, [activePage]);
 
   useEffect(() => {
     fetchRuntimeConfig().then(setRuntimeConfig);
