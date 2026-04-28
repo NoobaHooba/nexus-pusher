@@ -39,7 +39,6 @@ export function useAppShellState() {
   const [repoNames, setRepoNames] = useState(() => loadScopedRepoNames(loadLoginSettings()));
   const [userUiPrefs, setUserUiPrefs] = useState(() => loadScopedUserUiPrefs(loadLoginSettings()));
   const [showSettings, setShowSettings] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
   const settingsScope = getSettingsStorageScope(settings);
   const skipPersistUserUiPrefs = useRef(true);
 
@@ -105,14 +104,12 @@ export function useAppShellState() {
     setSettings(next);
     saveLoginSettings(next);
     setShowSettings(false);
-    setShowUserMenu(false);
   };
 
   const logout = () => {
     const next = { username: '', password: '' };
     setSettings(next);
     clearLoginSettings();
-    setShowUserMenu(false);
   };
 
   const updateRepoName = (type, name) => {
@@ -138,8 +135,6 @@ export function useAppShellState() {
     updateRepoName,
     showSettings,
     setShowSettings,
-    showUserMenu,
-    setShowUserMenu,
     saveSettings,
     logout,
   };

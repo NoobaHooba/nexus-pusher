@@ -1,7 +1,7 @@
 export const MAX_SEARCH_HISTORY = 6;
 export const MAX_SUGGESTIONS = 8;
 export const DEFAULT_SORT = { field: 'lastModified', direction: 'desc' };
-export const SORT_FIELDS = ['asset', 'uploader', 'repository', 'format', 'size', 'lastModified'];
+export const SORT_FIELDS = ['asset', 'version', 'uploader', 'repository', 'format', 'size', 'lastModified'];
 
 export const DEFAULT_SEARCH_STATE = {
   keyword: '',
@@ -256,19 +256,12 @@ export function getLocalRefinements(state) {
 }
 
 function matchesPackageHint(asset, value) {
-  const query = normalizeText(value).toLowerCase();
-  if (!query) return true;
-
-  const candidates = [
+  return includesNormalized([
     getAssetName(asset),
-    getAssetFileName(asset),
-    asset?.path,
-    asset?.version,
-  ]
-    .map((item) => String(item || '').toLowerCase())
-    .filter(Boolean);
-
-  return candidates.some((candidate) => candidate.includes(query));
+    asset?.artifactId,
+    asset?.packageName,
+    asset?.maven2?.artifactId,
+  ], value);
 }
 
 function getAssetExtension(asset) {
@@ -315,17 +308,15 @@ function matchesKeyword(asset, value) {
 function matchesGroup(asset, value) {
   return includesNormalized([
     asset?.group,
-    asset?.path,
-    asset?.repository,
+    asset?.maven2?.groupId,
   ], value);
 }
 
 function matchesVersion(asset, value) {
   return includesNormalized([
-    asset?.version,
-    getAssetName(asset),
-    getAssetFileName(asset),
-    asset?.path,
+    getAssetVersion(asset),
+    asset?.maven2?.baseVersion,
+    asset?.maven2?.version,
   ], value);
 }
 
@@ -333,7 +324,6 @@ function matchesMavenGroupId(asset, value) {
   return includesNormalized([
     asset?.maven2?.groupId,
     asset?.group,
-    asset?.path,
   ], value);
 }
 
@@ -341,9 +331,6 @@ function matchesMavenArtifactId(asset, value) {
   return includesNormalized([
     asset?.maven2?.artifactId,
     asset?.artifactId,
-    asset?.name,
-    getAssetFileName(asset),
-    asset?.path,
   ], value);
 }
 
@@ -351,8 +338,6 @@ function matchesMavenBaseVersion(asset, value) {
   return includesNormalized([
     asset?.maven2?.baseVersion,
     asset?.version,
-    getAssetFileName(asset),
-    asset?.path,
   ], value);
 }
 
@@ -483,8 +468,70 @@ export function getAssetFileName(asset) {
   return asset?.path?.split('/').pop() || asset?.name || asset?.id || '';
 }
 
+function getAssetFormat(asset) {
+  return String(asset?.format || asset?.type || '').toLowerCase();
+}
+
+function getNormalizedAssetPath(asset) {
+  return String(asset?.path || '').replace(/^\/+/, '');
+}
+
+function deriveDockerCoordinates(asset) {
+  const path = getNormalizedAssetPath(asset);
+  const manifestMatch = path.match(/^v2\/(.+)\/manifests\/([^/]+)$/i);
+  if (manifestMatch) {
+    return {
+      name: manifestMatch[1],
+      version: manifestMatch[2],
+    };
+  }
+
+  const blobMatch = path.match(/^v2\/(.+)\/blobs\/sha256:/i);
+  if (blobMatch) {
+    return {
+      name: blobMatch[1],
+      version: '',
+    };
+  }
+
+  return { name: '', version: '' };
+}
+
+function derivePackageCoordinates(asset) {
+  const format = getAssetFormat(asset);
+  const path = getNormalizedAssetPath(asset);
+  const segments = path.split('/').filter(Boolean);
+
+  if (format === 'pypi' && segments[0] === 'packages' && segments.length >= 3) {
+    return {
+      name: segments[1],
+      version: segments[2],
+    };
+  }
+
+  if (['nuget', 'helm', 'pypi'].includes(format) && segments.length >= 2) {
+    return {
+      name: segments[0],
+      version: segments[1],
+    };
+  }
+
+  return { name: '', version: '' };
+}
+
 export function getAssetName(asset) {
-  return asset?.name || asset?.artifactId || asset?.packageName || getAssetFileName(asset);
+  const format = getAssetFormat(asset);
+  if (format === 'docker') {
+    const dockerName = deriveDockerCoordinates(asset).name;
+    if (dockerName) return dockerName;
+  }
+
+  if (['helm', 'pypi', 'nuget'].includes(format)) {
+    const packageName = derivePackageCoordinates(asset).name;
+    if (packageName) return packageName;
+  }
+
+  return asset?.artifactId || asset?.packageName || asset?.name || getAssetFileName(asset);
 }
 
 export function getAssetUploader(asset) {
@@ -529,13 +576,33 @@ export function buildSearchSuggestions(inputValue, recentSearches, results) {
 }
 
 export function getAssetDisplayName(asset) {
-  return getAssetFileName(asset);
+  return getAssetName(asset) || getAssetFileName(asset);
+}
+
+export function getAssetVersion(asset) {
+  const format = getAssetFormat(asset);
+  if (format === 'docker') {
+    const dockerVersion = deriveDockerCoordinates(asset).version;
+    if (dockerVersion) return dockerVersion;
+  }
+
+  if (['helm', 'pypi', 'nuget'].includes(format)) {
+    const packageVersion = derivePackageCoordinates(asset).version;
+    if (packageVersion) return packageVersion;
+  }
+
+  return asset?.version
+    || asset?.maven2?.baseVersion
+    || asset?.maven2?.version
+    || '';
 }
 
 export function getSortValue(asset, field) {
   switch (field) {
     case 'asset':
       return getAssetDisplayName(asset).toLowerCase();
+    case 'version':
+      return getAssetVersion(asset).toLowerCase();
     case 'uploader':
       return getAssetUploader(asset).toLowerCase();
     case 'repository':

@@ -44,7 +44,8 @@ const uploaderMap = {
 function buildBrowseUrl(nexusUrl, repo, path) {
   const base = String(nexusUrl || '').replace(/\/+$/, '');
   if (!base || !repo) return null;
-  return `${base}/#browse/browse:${repo}${path ? `:${encodeURIComponent(String(path).replace(/^\/+/, ''))}` : ''}`;
+  const normalizedPath = String(path || '').replace(/^\/+/, '');
+  return `${base}/#browse/browse:${repo}${normalizedPath ? `:${normalizedPath}` : ''}`;
 }
 
 function buildResultCoordinates(type, detected, extra) {

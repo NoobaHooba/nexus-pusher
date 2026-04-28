@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiUrl } from '../../shared/lib/backendApi';
-import { buildNexusBrowseUrl, rewriteNexusUrl } from '../../shared/lib/nexusLinks';
+import { resolveNexusEntryUrl } from '../../shared/lib/nexusLinks';
 import { loadHistoryState, saveHistoryState } from './historyStorage';
 import { PAGE_SIZE } from './historyState';
 
@@ -78,7 +78,7 @@ function exportCsv(rows, settings) {
     r.path || '',
     r.status,
     r.error || '',
-    buildNexusBrowseUrl(settings, r.repo || r.repoName, r.path, r) || rewriteNexusUrl(settings, r.nexus_url || r.nexusUiUrl || ''),
+    resolveNexusEntryUrl(settings, r.repo || r.repoName, r.path, r, r.nexus_url || r.nexusUiUrl || ''),
   ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
   const csv  = [header.join(','), ...lines].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -197,19 +197,19 @@ export default function HistoryPage({ settings }) {
                            .reduce((a, r) => a + (r.size || 0), 0);
 
   return (
-    <div className="density-page flex flex-col gap-8">
+    <div className="history-page density-page flex flex-col gap-8">
 
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-4xl font-extrabold tracking-tight text-primary dark:text-dark-text">Upload History</h2>
+          <h2 className="history-title text-4xl font-extrabold tracking-tight text-primary dark:text-dark-text">Upload History</h2>
           <p className="text-on-surface-variant dark:text-dark-text-muted mt-1">
             {settings?.username
               ? <>Uploads by <span className="font-semibold text-primary dark:text-dark-text">{settings.username}</span> — persisted on the server.</>
               : 'All uploads — persisted on the server.'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="history-actions flex items-center gap-3">
           <button
             onClick={() => { setOffset(0); fetchHistory(); }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-semibold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors"
@@ -257,7 +257,7 @@ export default function HistoryPage({ settings }) {
       )}
 
       {/* Stats strip */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="history-stats grid grid-cols-3 gap-4">
         {STAT_CARDS.map(({ key, icon, label, iconWrapClass, iconClass }) => {
           const value = key === 'success' ? successCount : key === 'error' ? errorCount : formatSize(totalBytes);
           return (
@@ -340,7 +340,7 @@ export default function HistoryPage({ settings }) {
           <p className="text-sm text-slate-400 dark:text-dark-text-faint mt-1 max-w-xs">Every upload you make will be recorded here automatically.</p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
+        <div className="history-results-table bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
           <table className="density-table w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 dark:border-dark-border">
@@ -356,7 +356,7 @@ export default function HistoryPage({ settings }) {
                 const repoType = row.type     || row.repoType || '';
                 const repoName = row.repo     || row.repoName || '\u2014';
                 const ts       = row.ts       || row.timestamp;
-                const nexusUrl = buildNexusBrowseUrl(settings, row.repo || row.repoName, row.path, row) || rewriteNexusUrl(settings, row.nexus_url || row.nexusUiUrl || '');
+                const nexusUrl = resolveNexusEntryUrl(settings, row.repo || row.repoName, row.path, row, row.nexus_url || row.nexusUiUrl || '');
                 return (
                   <tr key={row.id ?? i} className={`border-b border-slate-50 dark:border-dark-border hover:bg-slate-50/60 dark:hover:bg-dark-surface-2/70 transition-colors ${i % 2 === 0 ? '' : 'bg-slate-50/30 dark:bg-dark-surface-2/30'}`}>
                     <td className="px-5 py-3">

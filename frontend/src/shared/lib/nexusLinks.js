@@ -2,6 +2,13 @@ function trimTrailingSlash(value) {
   return String(value || '').replace(/\/+$/, '');
 }
 
+function getFileName(path = '') {
+  const normalized = String(path || '').replace(/^\/+/, '');
+  if (!normalized) return '';
+  const parts = normalized.split('/').filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
 function normalizeBrowsePath(path = '', meta = {}) {
   const rawPath = String(path || '');
   const trimmedPath = rawPath.replace(/^\/+/, '');
@@ -17,6 +24,65 @@ function normalizeBrowsePath(path = '', meta = {}) {
   }
 
   return trimmedPath;
+}
+
+function buildFormatAwareBrowsePath(path = '', meta = {}) {
+  const format = String(meta.format || meta.type || '').toLowerCase();
+  const name = meta.name || meta.package_name || meta.packageName || meta.artifact_id || meta.artifactId || meta.chartName || '';
+  const version = meta.version || '';
+  const normalizedPath = String(path || '').replace(/^\/+/, '');
+  const fileName = getFileName(normalizedPath);
+
+  if (format === 'npm') {
+    if (normalizedPath.includes('/-/')) {
+      return normalizedPath.replace('/-/', '/');
+    }
+    if (name) {
+      return String(name).replace(/^\/+/, '');
+    }
+  }
+
+  if (format === 'docker') {
+    const manifestMatch = normalizedPath.match(/^(v2\/.+)\/manifests\/([^/]+)$/);
+    if (manifestMatch) {
+      return `${manifestMatch[1]}/tags/${manifestMatch[2]}`;
+    }
+    return normalizedPath;
+  }
+
+  if (format === 'helm') {
+    if (name && version && fileName) {
+      return `${name}/${version}/${fileName}`;
+    }
+    return normalizedPath;
+  }
+
+  if (format === 'nuget') {
+    if (name && version && fileName) {
+      return `${name}/${version}/${fileName}`;
+    }
+    if (name && version) {
+      return `${name}/${version}`;
+    }
+    return normalizedPath;
+  }
+
+  if (format === 'pypi') {
+    if (name && version && fileName) {
+      return `${name}/${version}/${fileName}`;
+    }
+    return normalizedPath;
+  }
+
+  if (format === 'yum') {
+    return fileName || normalizedPath;
+  }
+
+  if (format === 'apt') {
+    return '';
+  }
+
+  return normalizeBrowsePath(path, meta);
 }
 
 export function getNexusBrowserBaseUrl(settings) {
@@ -43,8 +109,14 @@ export function getNexusBrowserBaseUrl(settings) {
 export function buildNexusBrowseUrl(settings, repo, path = '', meta = {}) {
   const base = getNexusBrowserBaseUrl(settings);
   if (!base || !repo) return '';
-  const browsePath = normalizeBrowsePath(path, meta);
-  return `${base}/#browse/browse:${repo}${browsePath ? `:${encodeURIComponent(browsePath)}` : ''}`;
+  const browsePath = buildFormatAwareBrowsePath(path, meta);
+  const normalizedBrowsePath = browsePath ? String(browsePath).replace(/^\/+/, '') : '';
+  const finalBrowsePath = normalizedBrowsePath ? encodeURIComponent(normalizedBrowsePath) : '';
+  return `${base}/#browse/browse:${repo}${finalBrowsePath ? `:${finalBrowsePath}` : ''}`;
+}
+
+export function resolveNexusEntryUrl(settings, repo, path = '', meta = {}, rawUrl = '') {
+  return buildNexusBrowseUrl(settings, repo, path, meta) || rewriteNexusUrl(settings, rawUrl);
 }
 
 export function rewriteNexusUrl(settings, rawUrl) {
@@ -68,6 +140,6 @@ export function rewriteNexusAssetUrls(settings, asset) {
     ...asset,
     downloadUrl: rewriteNexusUrl(settings, asset.downloadUrl),
     nexusUiUrl: rewriteNexusUrl(settings, asset.nexusUiUrl),
-    browseUrl: buildNexusBrowseUrl(settings, asset.repository, asset.path, asset),
+    browseUrl: resolveNexusEntryUrl(settings, asset.repository, asset.path, asset, asset.nexusUiUrl),
   };
 }

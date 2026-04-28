@@ -35,8 +35,6 @@ export default function AppShell() {
     updateRepoName,
     showSettings,
     setShowSettings,
-    showUserMenu,
-    setShowUserMenu,
     saveSettings,
     logout,
   } = useAppShellState();
@@ -124,46 +122,15 @@ export default function AppShell() {
         theme={theme}
         denseMode={denseMode}
         onToggleTheme={toggleTheme}
+        onOpenLogin={() => setShowSettings(true)}
+        onLogout={handleLogout}
       />
 
-      <main className={`ml-64 flex flex-col max-w-[1400px] ${denseMode ? 'p-7 gap-8' : 'p-10 gap-12'}`}>
-        <div className="flex justify-end relative">
-          <button
-            onClick={() => setShowUserMenu((open) => !open)}
-            className={`inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface text-sm font-bold text-primary dark:text-dark-text ${denseMode ? 'px-3.5 py-2' : 'px-4 py-2.5'}`}
-          >
-            <span className="material-symbols-outlined text-[18px]">account_circle</span>
-            {effectiveSettings.username || 'Login'}
-            <span className="material-symbols-outlined text-[18px]">expand_more</span>
-          </button>
-          {showUserMenu && (
-            <div className="absolute top-14 right-0 w-52 rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-xl z-20 p-2 flex flex-col">
-              <button
-                onClick={() => { setShowSettings(true); setShowUserMenu(false); }}
-                className="text-left px-3 py-2.5 rounded-xl text-sm font-semibold text-primary dark:text-dark-text hover:bg-slate-50 dark:hover:bg-dark-surface-2"
-              >
-                {effectiveSettings.username ? 'Edit Login' : 'Login'}
-              </button>
-              {effectiveSettings.username && (
-                <button
-                  onClick={handleLogout}
-                  className="text-left px-3 py-2.5 rounded-xl text-sm font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20"
-                >
-                  Log Out
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
+      <main className={`ml-64 flex flex-col max-w-[1400px] ${denseMode ? 'p-5 gap-6' : 'p-10 gap-12'}`}>
         {activePage === 'upload' && (
           <>
             <section>
-              <h2 className={`font-extrabold tracking-tight text-primary dark:text-dark-text ${denseMode ? 'text-4xl mb-3' : 'text-5xl mb-4'}`}>Upload Assets</h2>
-              <p className={`text-on-surface-variant dark:text-dark-text-muted max-w-2xl leading-relaxed ${denseMode ? 'text-base' : 'text-lg'}`}>
-                Push repository builds, container images, and binary artifacts to the Nexus network.
-                Select your target repository type and monitor deployment status.
-              </p>
+              <h2 className={`font-extrabold tracking-tight text-primary dark:text-dark-text ${denseMode ? 'text-[2rem] mb-2' : 'text-5xl mb-4'}`}>Upload Assets</h2>
             </section>
 
             <RepoSelector
@@ -179,8 +146,8 @@ export default function AppShell() {
               onToggleFavorite={toggleFavoriteRepo}
             />
 
-            <div className={`grid grid-cols-1 lg:grid-cols-12 ${denseMode ? 'gap-8' : 'gap-12'}`}>
-              <div className={`lg:col-span-7 flex flex-col ${denseMode ? 'gap-7' : 'gap-10'}`}>
+            <div className={`grid grid-cols-1 lg:grid-cols-12 ${denseMode ? 'gap-6' : 'gap-12'}`}>
+              <div className={`lg:col-span-7 flex flex-col ${denseMode ? 'gap-5' : 'gap-10'}`}>
                 <UploadZone
                   onFiles={stageFiles}
                   repoType={activeRepo}

@@ -41,7 +41,8 @@ async function upload({ file, nexusUrl, repo, username, password }) {
     auth: username ? { username, password } : undefined,
   });
 
-  const nexusUiUrl = `${nexusUrl.replace(/\/$/, '')}/#browse/browse:${repo}:${encodeURIComponent(name)}`;
+  const browsePath = `${name}/${tarballName}`;
+  const nexusUiUrl = `${nexusUrl.replace(/\/$/, '')}/#browse/browse:${repo}:${encodeURIComponent(browsePath)}`;
   return {
     url,
     downloadUrl: `${baseUrl}/${name}/-/${tarballName}`,

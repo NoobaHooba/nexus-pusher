@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useAnimatedNumber } from '../../../shared/hooks/useAnimatedNumber';
-import { rewriteNexusUrl } from '../../../shared/lib/nexusLinks';
+import { resolveNexusEntryUrl, rewriteNexusUrl } from '../../../shared/lib/nexusLinks';
 
 const STATUS_CONFIG = {
   pending:   { label: 'Pending',   bgClass: 'bg-slate-100 dark:bg-dark-surface-2 text-slate-500 dark:text-dark-text-muted', iconBg: 'bg-slate-50 dark:bg-dark-surface-2 text-slate-400 dark:text-dark-text-faint', icon: 'description',  cardClass: 'border-slate-50 dark:border-dark-border' },
@@ -139,6 +139,13 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
           const isDone      = item.status === 'done';
           const isPending   = item.status === 'pending';
           const isDragOver  = overItemId === item.id;
+          const nexusEntryUrl = resolveNexusEntryUrl(
+            settings,
+            item.repoName,
+            item.path,
+            { ...item, type: item.repoType },
+            item.nexusUiUrl,
+          );
 
           return (
             <div
@@ -196,9 +203,9 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
                   }`}>
                     {formatSize(item.size)}{item.speed ? ` • ${item.speed}` : ''}{item.statusText ? ` • ${item.statusText}` : ''}
                   </p>
-                  {isDone && item.nexusUiUrl && (
+                  {isDone && nexusEntryUrl && (
                     <div className="mt-1.5 flex flex-col gap-1">
-                      <a href={rewriteNexusUrl(settings, item.nexusUiUrl)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] font-bold text-accent dark:text-dark-accent hover:underline">
+                      <a href={nexusEntryUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] font-bold text-accent dark:text-dark-accent hover:underline">
                         <span className="material-symbols-outlined text-[12px]">open_in_new</span>
                         Open in Nexus
                       </a>

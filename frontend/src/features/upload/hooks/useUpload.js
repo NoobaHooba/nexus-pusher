@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { UPLOADERS, runPreflight } from '../../../shared/lib/nexusApi';
-import { rewriteNexusUrl } from '../../../shared/lib/nexusLinks';
+import { resolveNexusEntryUrl } from '../../../shared/lib/nexusLinks';
 import {
   BASE_RETRY_DELAY,
   MAX_AUTO_RETRIES,
@@ -24,7 +24,8 @@ function isTransientError(message) {
     m.includes('econnreset') ||
     m.includes('etimedout') ||
     m.includes('fetch') ||
-    m.includes('backend') ||
+    m.includes('cannot reach the backend') ||
+    /backend returned http 5\d\d/.test(m) ||
     /http 5\d\d/.test(m)
   );
 }
@@ -342,14 +343,21 @@ export function useUpload(settings, repoType, repoName, toast) {
               path: result?.path || '',
               coordinates: result?.coordinates || item.coordinates || {},
             };
+            const nexusEntryUrl = resolveNexusEntryUrl(
+              item.settings,
+              item.repoName,
+              patch.path || item.path,
+              { ...item, ...patch, type: item.repoType },
+              patch.nexusUiUrl,
+            );
             updateQueueItem(item.id, patch);
             saveUploadHistory({ ...item, ...patch }, MAX_HISTORY, item.settings);
             persistSuccessfulContext({ ...item, ...patch });
 
             toastRef.current?.success(`Pushed to ${item.repoName}${attempt > 0 ? ` on attempt ${attempt + 1}` : ''}`, {
               title: item.name,
-              ...(patch.nexusUiUrl
-                ? { action: { label: 'Open in Nexus', onClick: () => window.open(rewriteNexusUrl(item.settings, patch.nexusUiUrl), '_blank') } }
+              ...(nexusEntryUrl
+                ? { action: { label: 'Open in Nexus', onClick: () => window.open(nexusEntryUrl, '_blank') } }
                 : {}),
             });
 

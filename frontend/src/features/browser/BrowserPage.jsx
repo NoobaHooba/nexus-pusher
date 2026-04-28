@@ -12,6 +12,7 @@ import {
   getAssetFileName,
   getAssetName,
   getAssetUploader,
+  getAssetVersion,
   getEffectiveSortState,
   getLocalRefinements,
   hasBrowserQueryParams,
@@ -172,6 +173,7 @@ function FilterChip({ chip, onRemove }) {
 function MobileAssetCard({ asset, onOpen, settings }) {
   const fileName = getAssetFileName(asset) || '—';
   const assetName = getAssetName(asset) || fileName;
+  const version = getAssetVersion(asset);
   const fmtColor = FORMAT_COLORS[asset.format] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
 
   return (
@@ -193,6 +195,10 @@ function MobileAssetCard({ asset, onOpen, settings }) {
         <div>
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">Repository</p>
           <p className="font-mono text-on-surface-variant dark:text-dark-text-muted">{asset.repository || '—'}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">Version</p>
+          <p className="truncate text-on-surface-variant dark:text-dark-text-muted">{version || '—'}</p>
         </div>
         <div>
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">Size</p>
@@ -255,6 +261,8 @@ export default function BrowserPage({ settings }) {
   const searchBoxRef = useRef(null);
   const keywordDebounceRef = useRef(null);
   const searchDebounceRef = useRef(null);
+  const lastScrollYRef = useRef(0);
+  const autoCollapsedFiltersRef = useRef(null);
 
   const updateSearchState = useCallback((updater) => {
     setSearchState((current) => {
@@ -375,6 +383,39 @@ export default function BrowserPage({ settings }) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    lastScrollYRef.current = typeof window !== 'undefined' ? window.scrollY : 0;
+
+    const handleScroll = () => {
+      const nextScrollY = window.scrollY;
+      const scrollingDown = nextScrollY > lastScrollYRef.current;
+      const scrollingUp = nextScrollY < lastScrollYRef.current;
+
+      if (scrollingDown && nextScrollY > 40 && (uiPrefs.filtersOpen || uiPrefs.localFiltersOpen)) {
+        autoCollapsedFiltersRef.current = {
+          filtersOpen: uiPrefs.filtersOpen,
+          localFiltersOpen: uiPrefs.localFiltersOpen,
+        };
+        setUiPrefs((current) => ((current.filtersOpen || current.localFiltersOpen)
+          ? { ...current, filtersOpen: false, localFiltersOpen: false }
+          : current));
+      } else if (scrollingUp && autoCollapsedFiltersRef.current) {
+        const restoreState = autoCollapsedFiltersRef.current;
+        autoCollapsedFiltersRef.current = null;
+        setUiPrefs((current) => (
+          current.filtersOpen === restoreState.filtersOpen && current.localFiltersOpen === restoreState.localFiltersOpen
+            ? current
+            : { ...current, ...restoreState }
+        ));
+      }
+
+      lastScrollYRef.current = nextScrollY;
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [uiPrefs.filtersOpen]);
 
   const availableFormats = useMemo(() => [...new Set(repos.map((repo) => repo.format).filter(Boolean))].sort(), [repos]);
 
@@ -558,14 +599,13 @@ export default function BrowserPage({ settings }) {
   }
 
   return (
-    <div className="density-page flex flex-col gap-6">
+    <div className="browser-page density-page flex flex-col gap-6">
       <div>
-        <h2 className="text-4xl font-extrabold tracking-tight text-primary dark:text-dark-text">Repository Browser</h2>
-        <p className="text-on-surface-variant dark:text-dark-text-muted mt-1">Advanced search across Nexus repositories with shareable filters and loaded-result refinements.</p>
+        <h2 className="browser-title text-4xl font-extrabold tracking-tight text-primary dark:text-dark-text">Repository Browser</h2>
       </div>
 
-      <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
-        <aside className="w-full xl:w-64 xl:flex-shrink-0 bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
+      <div className="browser-layout flex flex-col gap-6 xl:flex-row xl:items-start">
+        <aside className="browser-repo-sidebar w-full xl:w-64 xl:flex-shrink-0 bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 dark:border-dark-border space-y-3">
             <p className="text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Repositories</p>
             <div className="relative">
@@ -640,7 +680,7 @@ export default function BrowserPage({ settings }) {
 
         <div className="min-w-0 flex-1 flex flex-col gap-4">
           <div className="sticky top-6 z-20">
-            <div className="rounded-3xl border border-slate-100 bg-white/95 p-5 shadow-sm backdrop-blur dark:border-dark-border dark:bg-dark-surface/95">
+            <div className="browser-search-shell rounded-3xl border border-slate-100 bg-white/95 p-5 shadow-sm backdrop-blur dark:border-dark-border dark:bg-dark-surface/95">
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                   <div ref={searchBoxRef} className="relative flex-1 min-w-[260px]">
@@ -745,7 +785,10 @@ export default function BrowserPage({ settings }) {
                       Clear All
                     </button>
                     <button
-                      onClick={() => setUiPrefs((current) => ({ ...current, filtersOpen: !current.filtersOpen }))}
+                      onClick={() => {
+                        autoCollapsedFiltersRef.current = null;
+                        setUiPrefs((current) => ({ ...current, filtersOpen: !current.filtersOpen }));
+                      }}
                       className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-on-surface-variant transition-colors hover:bg-slate-50 dark:border-dark-border dark:text-dark-text-muted dark:hover:bg-dark-surface-2"
                     >
                       <span className="material-symbols-outlined text-[16px]">tune</span>
@@ -753,6 +796,14 @@ export default function BrowserPage({ settings }) {
                       <span className="rounded-full bg-accent-dim/50 px-2 py-0.5 text-[10px] text-accent dark:bg-dark-accent-dim dark:text-dark-accent">
                         {activeChips.length}
                       </span>
+                    </button>
+                    <button
+                      onClick={() => setUiPrefs((current) => ({ ...current, localFiltersOpen: !current.localFiltersOpen }))}
+                      className="inline-flex items-center gap-2 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm font-bold text-cyan-700 transition-colors hover:bg-cyan-100 dark:border-cyan-900/30 dark:bg-cyan-900/20 dark:text-cyan-300 dark:hover:bg-cyan-900/30"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">tune</span>
+                      Advanced Filters
+                      <span className="material-symbols-outlined text-[16px]">{uiPrefs.localFiltersOpen ? 'expand_less' : 'expand_more'}</span>
                     </button>
                   </div>
                 </div>
@@ -767,11 +818,10 @@ export default function BrowserPage({ settings }) {
 
                 {uiPrefs.filtersOpen && (
                   <div className="flex flex-col gap-4">
-                    <section className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-dark-border dark:bg-dark-surface-2/70">
+                    <section className="browser-filter-section rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-dark-border dark:bg-dark-surface-2/70">
                       <div className="mb-4 flex items-start justify-between gap-4 flex-wrap">
                         <div>
                           <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">Search Nexus</p>
-                          <p className="mt-1 text-sm text-on-surface-variant dark:text-dark-text-muted">These filters query Nexus directly and stay shareable in the URL.</p>
                         </div>
                         {selectedRepositoryMeta && (
                           <span className="rounded-full bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:bg-dark-surface dark:text-dark-text-muted">
@@ -821,37 +871,24 @@ export default function BrowserPage({ settings }) {
                       </div>
                     </section>
 
-                    <div className="flex flex-col gap-3">
-                      <button
-                        onClick={() => setUiPrefs((current) => ({ ...current, localFiltersOpen: !current.localFiltersOpen }))}
-                        className="inline-flex w-fit items-center gap-2 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2.5 text-sm font-bold text-cyan-700 transition-colors hover:bg-cyan-100 dark:border-cyan-900/30 dark:bg-cyan-900/20 dark:text-cyan-300 dark:hover:bg-cyan-900/30"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">tune</span>
-                        Advanced Filters
-                        <span className="material-symbols-outlined text-[16px]">{uiPrefs.localFiltersOpen ? 'expand_less' : 'expand_more'}</span>
-                      </button>
-
-                      {uiPrefs.localFiltersOpen && (
-                        <section className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4 dark:border-cyan-900/30 dark:bg-cyan-900/10">
-                          <div className="mb-4">
-                            <div className="flex items-center gap-2">
-                              <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-600 dark:text-cyan-300">Refine Loaded Results Only</p>
-                              <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-bold text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">Local</span>
-                            </div>
-                            <p className="mt-1 text-sm text-on-surface-variant dark:text-dark-text-muted">These filters do not hit Nexus again. They only refine what is currently loaded.</p>
-                          </div>
-                          <div className="flex flex-wrap gap-3 items-end">
-                            <FilterField className="min-w-[180px] flex-1" label="Path Contains" value={searchState.path} onChange={(value) => updateField('path', value)} placeholder="org/osgi/" />
-                            <FilterField className="min-w-[180px] flex-1" label="Uploaded By" value={searchState.uploadedBy} onChange={(value) => updateField('uploadedBy', value)} placeholder="admin" />
-                            <FilterField className="min-w-[150px] flex-1" label="Size Min" value={searchState.sizeMin} onChange={(value) => updateField('sizeMin', value)} placeholder="0" type="number" min="0" helperText="Bytes" />
-                            <FilterField className="min-w-[150px] flex-1" label="Size Max" value={searchState.sizeMax} onChange={(value) => updateField('sizeMax', value)} placeholder="1048576" type="number" min="0" helperText="Bytes" />
-                            <FilterField className="min-w-[170px] flex-1" label="Modified From" value={searchState.modifiedFrom} onChange={(value) => updateField('modifiedFrom', value)} type="date" />
-                            <FilterField className="min-w-[170px] flex-1" label="Modified To" value={searchState.modifiedTo} onChange={(value) => updateField('modifiedTo', value)} type="date" />
-                          </div>
-                        </section>
-                      )}
-                    </div>
                   </div>
+                )}
+
+                {uiPrefs.localFiltersOpen && (
+                  <section className="browser-local-filter-section rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4 dark:border-cyan-900/30 dark:bg-cyan-900/10">
+                    <div className="mb-4 flex items-center gap-2">
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-600 dark:text-cyan-300">Refine Loaded Results Only</p>
+                      <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-bold text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">Local</span>
+                    </div>
+                    <div className="flex flex-wrap gap-3 items-end">
+                      <FilterField className="min-w-[180px] flex-1" label="Path Contains" value={searchState.path} onChange={(value) => updateField('path', value)} placeholder="org/osgi/" />
+                      <FilterField className="min-w-[180px] flex-1" label="Uploaded By" value={searchState.uploadedBy} onChange={(value) => updateField('uploadedBy', value)} placeholder="admin" />
+                      <FilterField className="min-w-[150px] flex-1" label="Size Min" value={searchState.sizeMin} onChange={(value) => updateField('sizeMin', value)} placeholder="0" type="number" min="0" />
+                      <FilterField className="min-w-[150px] flex-1" label="Size Max" value={searchState.sizeMax} onChange={(value) => updateField('sizeMax', value)} placeholder="1048576" type="number" min="0" />
+                      <FilterField className="min-w-[170px] flex-1" label="Modified From" value={searchState.modifiedFrom} onChange={(value) => updateField('modifiedFrom', value)} type="date" />
+                      <FilterField className="min-w-[170px] flex-1" label="Modified To" value={searchState.modifiedTo} onChange={(value) => updateField('modifiedTo', value)} type="date" />
+                    </div>
+                  </section>
                 )}
               </div>
             </div>
@@ -927,11 +964,22 @@ export default function BrowserPage({ settings }) {
                 ))}
               </div>
 
-              <div className="hidden lg:block bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
-                <table className="density-table w-full text-sm">
+              <div className="browser-results-table hidden lg:block bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
+                <table className="density-table table-fixed w-full text-sm">
+                  <colgroup>
+                    <col className="w-[33%]" />
+                    <col className="w-[11%]" />
+                    <col className="w-[12%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[9%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[64px]" />
+                  </colgroup>
                   <thead>
                     <tr className="border-b border-slate-100 dark:border-dark-border bg-slate-50/60 dark:bg-dark-surface-2">
                       <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Asset', 'asset')}</th>
+                      <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Version', 'version')}</th>
                       <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Uploader', 'uploader')}</th>
                       <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Repository', 'repository')}</th>
                       <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider">{renderSortHeader('Format', 'format')}</th>
@@ -944,6 +992,7 @@ export default function BrowserPage({ settings }) {
                     {displayedResults.map((asset, index) => {
                       const fileName = getAssetFileName(asset) || '—';
                       const assetName = getAssetName(asset) || fileName;
+                      const version = getAssetVersion(asset);
                       const icon = fileIcon(asset.path || '');
                       const fmtColor = FORMAT_COLORS[asset.format] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
 
@@ -954,20 +1003,23 @@ export default function BrowserPage({ settings }) {
                           onClick={() => openDetail(asset)}
                         >
                           <td className="px-4 py-3">
-                            <div className="flex items-center gap-2.5">
+                            <div className="flex min-w-0 w-full items-center gap-2.5">
                               <span className="material-symbols-outlined text-slate-300 dark:text-dark-text-faint text-[18px] flex-shrink-0">{icon}</span>
-                              <div className="min-w-0">
-                                <p className="font-semibold text-primary dark:text-dark-text truncate max-w-[320px]" title={assetName}>{assetName}</p>
+                              <div className="min-w-0 w-full">
+                                <p className="font-semibold text-primary dark:text-dark-text truncate" title={assetName}>{assetName}</p>
                                 {fileName !== assetName && (
-                                  <p className="text-[11px] text-on-surface-variant dark:text-dark-text-muted truncate max-w-[320px]" title={fileName}>
+                                  <p className="text-[11px] text-on-surface-variant dark:text-dark-text-muted truncate" title={fileName}>
                                     File: {fileName}
                                   </p>
                                 )}
                                 {asset.path && (
-                                  <p className="text-[10px] text-slate-400 dark:text-dark-text-faint font-mono truncate max-w-[320px]" title={asset.path}>{asset.path}</p>
+                                  <p className="text-[10px] text-slate-400 dark:text-dark-text-faint font-mono truncate" title={asset.path}>{asset.path}</p>
                                 )}
                               </div>
                             </div>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-on-surface-variant dark:text-dark-text-muted tabular-nums">
+                            <span className="block truncate" title={version || '—'}>{version || '—'}</span>
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-col gap-0.5">
@@ -989,16 +1041,16 @@ export default function BrowserPage({ settings }) {
                           <td className="px-4 py-3 text-xs text-on-surface-variant dark:text-dark-text-muted whitespace-nowrap">
                             {formatDate(asset.lastModified || asset.blobCreated)}
                           </td>
-                          <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                             {buildNexusBrowseUrl(settings, asset.repository, asset.path, asset) && (
                               <a
                                 href={buildNexusBrowseUrl(settings, asset.repository, asset.path, asset)}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-xs font-bold text-accent hover:underline whitespace-nowrap"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-accent transition-colors hover:bg-accent-dim/30 dark:hover:bg-dark-accent-dim/30"
+                                title="Open in Nexus"
                               >
                                 <span className="material-symbols-outlined text-[13px]">open_in_new</span>
-                                Open
                               </a>
                             )}
                           </td>
@@ -1163,6 +1215,7 @@ export default function BrowserPage({ settings }) {
                     ['Path', detail.path],
                     ['Repository', detail.repository],
                     ['Format', detail.format],
+                    ['Version', getAssetVersion(detail)],
                     ['Size', detail.fileSize != null ? formatSize(detail.fileSize) : null],
                     ['Content Type', detail.contentType],
                     ['Last Modified', formatDate(detail.lastModified || detail.blobCreated)],

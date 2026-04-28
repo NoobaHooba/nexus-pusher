@@ -37,7 +37,17 @@ async function runHealthChecks(settings) {
   return results;
 }
 
-export default function Sidebar({ nexusLogo, activePage, onNavigate, settings, theme, denseMode, onToggleTheme }) {
+export default function Sidebar({
+  nexusLogo,
+  activePage,
+  onNavigate,
+  settings,
+  theme,
+  denseMode,
+  onToggleTheme,
+  onOpenLogin,
+  onLogout,
+}) {
   const [health, setHealth]     = useState({ backend: null, nexus: null, nexusMs: null });
   const [checking, setChecking] = useState(false);
   const intervalRef = useRef(null);
@@ -74,10 +84,10 @@ export default function Sidebar({ nexusLogo, activePage, onNavigate, settings, t
   const isDark = theme === 'dark';
 
   return (
-    <aside className={`h-screen w-64 fixed left-0 top-0 z-40 bg-white dark:bg-dark-surface border-r border-slate-100 dark:border-dark-border flex flex-col ${denseMode ? 'p-4 gap-1.5' : 'p-6 gap-2'}`}>
+    <aside className={`h-screen w-64 fixed left-0 top-0 z-40 bg-white dark:bg-dark-surface border-r border-slate-100 dark:border-dark-border flex flex-col ${denseMode ? 'p-3 gap-1' : 'p-6 gap-2'}`}>
 
       {/* Logo */}
-      <div className={`flex items-center gap-3 ${denseMode ? 'mb-6' : 'mb-10'}`}>
+      <div className={`flex items-center gap-3 ${denseMode ? 'mb-4' : 'mb-10'}`}>
         <div className={`${denseMode ? 'w-9 h-9' : 'w-10 h-10'} bg-primary rounded-xl flex items-center justify-center`}>
           <img src={nexusLogo} alt="Nexus Logo" className="w-6 h-6 object-contain" />
         </div>
@@ -88,7 +98,7 @@ export default function Sidebar({ nexusLogo, activePage, onNavigate, settings, t
       </div>
 
       {/* Nav */}
-      <nav className={`flex-1 flex flex-col ${denseMode ? 'gap-1.5' : 'gap-2'}`}>
+      <nav className={`flex-1 flex flex-col ${denseMode ? 'gap-1' : 'gap-2'}`}>
         {NAV_ITEMS.map(({ id, icon, label }) => {
           const active = activePage === id;
           return (
@@ -99,7 +109,7 @@ export default function Sidebar({ nexusLogo, activePage, onNavigate, settings, t
                 active
                   ? 'text-primary dark:text-dark-text font-bold bg-accent-dim/50 dark:bg-dark-accent-dim'
                   : 'text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2'
-              } ${denseMode ? 'px-3 py-2.5' : 'px-4 py-3'}`}
+              } ${denseMode ? 'px-3 py-2' : 'px-4 py-3'}`}
             >
               <span className={`material-symbols-outlined text-[20px] ${active ? 'text-accent dark:text-dark-accent' : ''}`}>{icon}</span>
               <span>{label}</span>
@@ -109,7 +119,7 @@ export default function Sidebar({ nexusLogo, activePage, onNavigate, settings, t
       </nav>
 
       {/* Connection status */}
-      <div className={`border-t border-slate-100 dark:border-dark-border ${denseMode ? 'pt-3 pb-1.5' : 'pt-4 pb-2'}`}>
+      <div className={`border-t border-slate-100 dark:border-dark-border ${denseMode ? 'pt-2.5 pb-1' : 'pt-4 pb-2'}`}>
         <div className="flex items-center justify-between mb-2">
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">Connection</p>
           <button
@@ -154,15 +164,31 @@ export default function Sidebar({ nexusLogo, activePage, onNavigate, settings, t
       </div>
 
       {/* Footer controls */}
-      <div className={`flex flex-col gap-2 border-t border-slate-100 dark:border-dark-border ${denseMode ? 'pt-3' : 'pt-4'}`}>
+      <div className={`flex flex-col gap-1.5 border-t border-slate-100 dark:border-dark-border ${denseMode ? 'pt-2.5' : 'pt-4'}`}>
         <button
           onClick={onToggleTheme}
-          className={`mt-1 flex items-center gap-3 text-on-surface-variant dark:text-dark-text-muted text-sm font-medium hover:text-primary dark:hover:text-dark-text transition-colors ${denseMode ? 'px-3 py-1.5' : 'px-4 py-2'}`}
+          className={`mt-1 flex items-center gap-3 text-on-surface-variant dark:text-dark-text-muted text-sm font-medium hover:text-primary dark:hover:text-dark-text transition-colors ${denseMode ? 'px-3 py-1' : 'px-4 py-2'}`}
           aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
         >
           <span className="material-symbols-outlined text-[18px]">{isDark ? 'light_mode' : 'dark_mode'}</span>
           <span>{isDark ? 'Light Mode' : 'Dark Mode'}</span>
         </button>
+        <button
+          onClick={onOpenLogin}
+          className={`flex items-center gap-3 text-on-surface-variant dark:text-dark-text-muted text-sm font-medium hover:text-primary dark:hover:text-dark-text transition-colors ${denseMode ? 'px-3 py-1' : 'px-4 py-2'}`}
+        >
+          <span className="material-symbols-outlined text-[18px]">account_circle</span>
+          <span className="truncate">{settings?.username || 'Login'}</span>
+        </button>
+        {settings?.username && (
+          <button
+            onClick={onLogout}
+            className={`flex items-center gap-3 text-sm font-medium text-rose-500 transition-colors hover:text-rose-600 dark:hover:text-rose-400 ${denseMode ? 'px-3 py-1' : 'px-4 py-2'}`}
+          >
+            <span className="material-symbols-outlined text-[18px]">logout</span>
+            <span>Log Out</span>
+          </button>
+        )}
       </div>
     </aside>
   );

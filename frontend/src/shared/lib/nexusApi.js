@@ -8,19 +8,38 @@ function trimBaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
 
+function ensureHttpUrl(value, fallbackBase) {
+  const trimmed = trimBaseUrl(value);
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  const fallback = trimBaseUrl(fallbackBase);
+  if (/^https?:\/\//i.test(fallback)) {
+    return `${new URL(fallback).protocol}//${trimmed}`;
+  }
+  return `http://${trimmed}`;
+}
+
 function buildDockerRegistryTarget({ nexusUrl, repo, settings }) {
   const selectedRepo = String(repo || '').trim().replace(/^\/+|\/+$/g, '');
-  const browserHost = stripProtocol(settings?.nexusBrowserUrl || nexusUrl || '');
-  const configuredRegistry = stripProtocol(settings?.dockerRegistry || '');
-  const registryPrefix = configuredRegistry || (browserHost ? `${browserHost}/repository` : '');
-  const normalizedPrefix = registryPrefix.replace(/\/+$/, '');
-  const prefixAlreadyIncludesRepo = selectedRepo && normalizedPrefix.endsWith(`/${selectedRepo}`);
-  const registry = selectedRepo && !prefixAlreadyIncludesRepo
-    ? `${normalizedPrefix}/${selectedRepo}`
-    : normalizedPrefix;
-  const registryHost = (configuredRegistry || browserHost).split('/')[0] || '';
+  const browserBase = trimBaseUrl(settings?.nexusBrowserUrl || nexusUrl || '');
+  const browserHost = stripProtocol(browserBase);
+  const configuredRegistryRaw = trimBaseUrl(settings?.dockerRegistry || '');
+  const configuredRegistryReference = stripProtocol(configuredRegistryRaw);
+  const configuredRegistryUrl = ensureHttpUrl(configuredRegistryRaw, nexusUrl || browserBase);
+  const registryReferencePrefix = configuredRegistryReference || (browserHost ? `${browserHost}/repository` : '');
+  const registryUrlPrefix = configuredRegistryUrl || (trimBaseUrl(nexusUrl || '') ? `${trimBaseUrl(nexusUrl)}/repository` : '');
+  const normalizeWithRepo = (prefix) => {
+    const normalizedPrefix = String(prefix || '').replace(/\/+$/, '');
+    const prefixAlreadyIncludesRepo = selectedRepo && normalizedPrefix.endsWith(`/${selectedRepo}`);
+    return selectedRepo && !prefixAlreadyIncludesRepo
+      ? `${normalizedPrefix}/${selectedRepo}`
+      : normalizedPrefix;
+  };
+  const registry = normalizeWithRepo(registryReferencePrefix);
+  const registryUrl = normalizeWithRepo(registryUrlPrefix);
+  const registryHost = (configuredRegistryReference || browserHost).split('/')[0] || '';
 
-  return { registry, registryHost };
+  return { registry, registryHost, registryUrl };
 }
 
 function buildRepositoryTarget({ nexusUrl, repo, settings }) {
@@ -122,7 +141,7 @@ export function uploadPypi({ nexusUrl, repo, username, password, file, onProgres
   return backendUpload({ type: 'pypi', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
 }
 export function uploadDocker({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
-  const { registry, registryHost } = buildDockerRegistryTarget({ nexusUrl, repo, settings });
+  const { registry, registryHost, registryUrl } = buildDockerRegistryTarget({ nexusUrl, repo, settings });
   return backendUpload({
     type: 'docker',
     nexusUrl,
@@ -134,6 +153,7 @@ export function uploadDocker({ nexusUrl, repo, username, password, file, extra, 
       ...(extra || {}),
       registry,
       registryHost,
+      registryUrl,
     },
     onProgress,
     settings,
