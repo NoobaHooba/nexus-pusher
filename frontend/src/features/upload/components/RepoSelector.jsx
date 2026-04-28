@@ -6,6 +6,8 @@ export const REPO_TYPES = [
   { id: 'nuget',  label: 'NuGet',  icon: 'grid_view',     placeholder: 'e.g. nuget-hosted' },
   { id: 'pypi',   label: 'PyPI',   icon: 'code',          placeholder: 'e.g. pypi-internal' },
   { id: 'docker', label: 'Docker', icon: 'dock',          placeholder: 'e.g. docker-hosted' },
+  { id: 'cargo',  label: 'Cargo',  icon: 'package_2',     placeholder: 'e.g. cargo-hosted' },
+  { id: 'conan',  label: 'Conan',  icon: 'deployed_code', placeholder: 'e.g. conan-hosted' },
   { id: 'yum',    label: 'Yum',    icon: 'inventory_2',   placeholder: 'e.g. yum-hosted' },
   { id: 'apt',    label: 'Apt',    icon: 'terminal',      placeholder: 'e.g. apt-hosted' },
   { id: 'helm',   label: 'Helm',   icon: 'sailing',       placeholder: 'e.g. helm-charts' },
@@ -57,10 +59,10 @@ export default function RepoSelector({
     <section>
       <div className="flex items-center justify-between mb-8">
         <h3 className="text-xl font-bold tracking-tight text-primary dark:text-dark-text">Target Repositories</h3>
-        <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint">9 Available Types</span>
+        <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint">11 Available Types</span>
       </div>
 
-      <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-6">
+      <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-11 gap-6">
         {REPO_TYPES.map(({ id, label, icon }) => {
           const isActive = active === id;
           return (

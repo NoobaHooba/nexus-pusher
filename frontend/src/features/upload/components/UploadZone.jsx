@@ -6,6 +6,8 @@ const REPO_EXTENSIONS = {
   nuget:  ['.nupkg', '.snupkg'],
   pypi:   ['.whl', '.tar.gz', '.zip', '.egg'],
   docker: ['.tar', '.tar.gz', '.tgz'],
+  cargo:  ['.crate'],
+  conan:  [],
   yum:    ['.rpm'],
   apt:    ['.deb'],
   helm:   ['.tgz', '.tar.gz', '.gz'],
@@ -18,11 +20,80 @@ const REPO_HINTS = {
   nuget:  '.nupkg · .snupkg',
   pypi:   '.whl · .tar.gz · .egg',
   docker: '.tar · .tar.gz',
+  cargo:  '.crate',
   yum:    '.rpm',
   apt:    '.deb',
   helm:   '.tgz (helm package)',
   raw:    'any file',
 };
+
+function trimBaseUrl(value) {
+  return String(value || '').trim().replace(/\/+$/, '');
+}
+
+function buildClientTargets(settings, repoName) {
+  const selectedRepo = String(repoName || '').trim().replace(/^\/+|\/+$/g, '') || '<repository>';
+  const baseUrl = trimBaseUrl(settings?.nexusBrowserUrl || settings?.nexusUrl || 'https://nexus.example.com');
+  const repositoryUrl = `${baseUrl}/repository/${selectedRepo}/`;
+
+  return {
+    baseUrl,
+    selectedRepo,
+    repositoryUrl,
+    cargoIndexUrl: `sparse+${repositoryUrl}`,
+    conanRemoteUrl: repositoryUrl,
+    username: settings?.username || '<username>',
+  };
+}
+
+function ClientOnlyZone({ repoType, settings, repoName }) {
+  const { selectedRepo, cargoIndexUrl, conanRemoteUrl, username } = buildClientTargets(settings, repoName);
+  const isCargo = repoType === 'cargo';
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-3xl p-10 flex flex-col gap-5">
+        <div className="w-16 h-16 rounded-2xl bg-accent-dim dark:bg-dark-accent-dim flex items-center justify-center">
+          <span className="material-symbols-outlined text-3xl text-accent dark:text-dark-accent">
+            {isCargo ? 'package_2' : 'deployed_code'}
+          </span>
+        </div>
+        <div className="flex flex-col gap-2">
+          <h4 className="text-2xl font-bold text-primary dark:text-dark-text">
+            {isCargo ? 'Cargo Uses cargo publish' : 'Conan Uses conan upload'}
+          </h4>
+          <p className="text-on-surface-variant dark:text-dark-text-muted max-w-2xl">
+            Nexus requires the native {isCargo ? 'Cargo' : 'Conan'} client for this format, so this app can guide the target repository but cannot upload the package file directly.
+          </p>
+        </div>
+        <div className="rounded-2xl bg-slate-50 dark:bg-dark-surface-2 border border-slate-100 dark:border-dark-border px-5 py-4 flex flex-col gap-3">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">
+            {isCargo ? 'Cargo Client Flow' : 'Conan Client Flow'}
+          </p>
+          {isCargo ? (
+            <>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">[registries.{selectedRepo}]</code>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">index = "{cargoIndexUrl}"</code>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">cargo login --registry {selectedRepo}</code>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">cargo publish --registry {selectedRepo}</code>
+            </>
+          ) : (
+            <>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">conan remote add {selectedRepo} {conanRemoteUrl}</code>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">conan remote login {selectedRepo} {username}</code>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">conan upload &lt;name&gt;/&lt;version&gt;@&lt;user&gt;/&lt;channel&gt; -r {selectedRepo}</code>
+            </>
+          )}
+          {!repoName && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              Select a {isCargo ? 'Cargo' : 'Conan'} repository above to generate the exact target.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function validateFiles(files, repoType) {
   const allowed = REPO_EXTENSIONS[repoType];
@@ -35,7 +106,7 @@ function validateFiles(files, repoType) {
   return { valid, warnings };
 }
 
-export default function UploadZone({ onFiles, repoType, stagedCount }) {
+export default function UploadZone({ onFiles, repoType, stagedCount, settings, repoName }) {
   const inputRef            = useRef();
   const [dragging, setDragging]   = useState(false);
   const [warnings, setWarnings]   = useState([]);
@@ -98,6 +169,10 @@ export default function UploadZone({ onFiles, repoType, stagedCount }) {
   };
 
   const hint = REPO_HINTS[repoType];
+
+  if (repoType === 'cargo' || repoType === 'conan') {
+    return <ClientOnlyZone repoType={repoType} settings={settings} repoName={repoName} />;
+  }
 
   return (
     <div className="flex flex-col gap-6">

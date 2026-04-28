@@ -23,6 +23,8 @@ const FORMAT_COLORS = {
   maven2:  'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   npm:     'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
   docker:  'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  cargo:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  conan:   'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
   pypi:    'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
   nuget:   'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
   helm:    'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
@@ -33,7 +35,7 @@ const FORMAT_COLORS = {
   rubygems:'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
 };
 
-const KNOWN_FORMATS = ['maven2','npm','docker','pypi','nuget','helm','yum','apt','raw'];
+const KNOWN_FORMATS = ['maven2','npm','docker','cargo','conan','pypi','nuget','helm','yum','apt','raw'];
 function formatSize(bytes) {
   if (bytes == null) return '—';
   if (bytes < 1024)              return `${bytes} B`;

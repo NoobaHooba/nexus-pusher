@@ -4,6 +4,10 @@ function stripProtocol(value) {
   return String(value || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
 }
 
+function trimBaseUrl(value) {
+  return String(value || '').trim().replace(/\/+$/, '');
+}
+
 function buildDockerRegistryTarget({ nexusUrl, repo, settings }) {
   const selectedRepo = String(repo || '').trim().replace(/^\/+|\/+$/g, '');
   const browserHost = stripProtocol(settings?.nexusBrowserUrl || nexusUrl || '');
@@ -17,6 +21,15 @@ function buildDockerRegistryTarget({ nexusUrl, repo, settings }) {
   const registryHost = (configuredRegistry || browserHost).split('/')[0] || '';
 
   return { registry, registryHost };
+}
+
+function buildRepositoryTarget({ nexusUrl, repo, settings }) {
+  const selectedRepo = String(repo || '').trim().replace(/^\/+|\/+$/g, '') || '<repository>';
+  const baseUrl = trimBaseUrl(settings?.nexusBrowserUrl || nexusUrl || 'https://nexus.example.com');
+  return {
+    selectedRepo,
+    repositoryUrl: `${baseUrl}/repository/${selectedRepo}/`,
+  };
 }
 
 export async function fetchRepositories({ nexusUrl, username, password, settings }) {
@@ -126,6 +139,18 @@ export function uploadDocker({ nexusUrl, repo, username, password, file, extra, 
     settings,
   });
 }
+export function uploadCargo({ nexusUrl, repo, settings }) {
+  const { selectedRepo, repositoryUrl } = buildRepositoryTarget({ nexusUrl, repo, settings });
+  return Promise.reject(new Error(
+    `Cargo repositories must be published with the Cargo client. Configure ${selectedRepo} with index = "sparse+${repositoryUrl}" and run cargo publish --registry ${selectedRepo}.`
+  ));
+}
+export function uploadConan({ nexusUrl, repo, settings }) {
+  const { selectedRepo, repositoryUrl } = buildRepositoryTarget({ nexusUrl, repo, settings });
+  return Promise.reject(new Error(
+    `Conan repositories must be uploaded with the Conan client. Add remote ${selectedRepo} at ${repositoryUrl} and run conan upload against that remote.`
+  ));
+}
 export function uploadYum({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
   return backendUpload({ type: 'yum', nexusUrl, repo, username, password, file, extra, onProgress, settings });
 }
@@ -145,6 +170,8 @@ export const UPLOADERS = {
   nuget:  uploadNuget,
   pypi:   uploadPypi,
   docker: uploadDocker,
+  cargo:  uploadCargo,
+  conan:  uploadConan,
   yum:    uploadYum,
   apt:    uploadApt,
   helm:   uploadHelm,
