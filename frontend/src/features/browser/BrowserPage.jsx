@@ -255,6 +255,7 @@ export default function BrowserPage({ settings }) {
   const [error, setError] = useState(null);
   const [continuationToken, setContinuationToken] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadingAll, setLoadingAll] = useState(false);
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -324,6 +325,21 @@ export default function BrowserPage({ settings }) {
   const localRefinementsActive = useMemo(() => hasLocalRefinements(searchState), [searchState]);
   const effectiveSort = useMemo(() => getEffectiveSortState(searchState), [searchState]);
 
+  const fetchSearchPage = useCallback(async (query, token = '') => {
+    const data = await apiFetch(settings, '/api/browse/search', {
+      nexusUrl,
+      username,
+      password,
+      continuationToken: token || undefined,
+      query,
+    });
+
+    return {
+      continuationToken: data.continuationToken || null,
+      items: (data.items || []).map((item) => rewriteNexusAssetUrls(settings, item)),
+    };
+  }, [nexusUrl, username, password, settings]);
+
   const doSearch = useCallback(async (query, token = '', append = false) => {
     if (!nexusUrl) return;
     if (append) setLoadingMore(true);
@@ -331,24 +347,17 @@ export default function BrowserPage({ settings }) {
     setError(null);
 
     try {
-      const data = await apiFetch(settings, '/api/browse/search', {
-        nexusUrl,
-        username,
-        password,
-        continuationToken: token || undefined,
-        query,
-      });
-
-      const items = (data.items || []).map((item) => rewriteNexusAssetUrls(settings, item));
-      setResults((current) => (append ? [...current, ...items] : items));
-      setContinuationToken(data.continuationToken || null);
+      const data = await fetchSearchPage(query, token);
+      setResults((current) => (append ? [...current, ...data.items] : data.items));
+      setContinuationToken(data.continuationToken);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
       setLoadingMore(false);
+      setLoadingAll(false);
     }
-  }, [nexusUrl, username, password, settings]);
+  }, [nexusUrl, fetchSearchPage]);
 
   useEffect(() => {
     if (!nexusUrl) return undefined;
@@ -512,9 +521,35 @@ export default function BrowserPage({ settings }) {
   }, [updateSearchState]);
 
   const loadMore = useCallback(() => {
-    if (!continuationToken || loadingMore) return;
+    if (!continuationToken || loadingMore || loadingAll) return;
     doSearch(serverQuery, continuationToken, true);
-  }, [continuationToken, loadingMore, doSearch, serverQuery]);
+  }, [continuationToken, loadingMore, loadingAll, doSearch, serverQuery]);
+
+  const loadAll = useCallback(async () => {
+    if (!continuationToken || loadingMore || loadingAll) return;
+    setLoadingMore(true);
+    setLoadingAll(true);
+    setError(null);
+
+    try {
+      const collected = [];
+      let nextToken = continuationToken;
+
+      while (nextToken) {
+        const page = await fetchSearchPage(serverQuery, nextToken);
+        collected.push(...page.items);
+        nextToken = page.continuationToken;
+      }
+
+      setResults((current) => [...current, ...collected]);
+      setContinuationToken(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingMore(false);
+      setLoadingAll(false);
+    }
+  }, [continuationToken, loadingMore, loadingAll, fetchSearchPage, serverQuery]);
 
   const openDetail = useCallback(async (asset) => {
     setDetail(asset);
@@ -1062,30 +1097,52 @@ export default function BrowserPage({ settings }) {
 
                 {continuationToken && (
                   <div className="px-4 py-4 border-t border-slate-50 dark:border-dark-border flex justify-center">
-                    <button
-                      onClick={loadMore}
-                      disabled={loadingMore}
-                      className="flex items-center gap-2 px-6 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-50"
-                    >
-                      {loadingMore
-                        ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading…</>
-                        : <><span className="material-symbols-outlined text-[16px]">expand_more</span> Load More</>}
-                    </button>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <button
+                        onClick={loadMore}
+                        disabled={loadingMore}
+                        className="flex items-center gap-2 px-6 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-50"
+                      >
+                        {loadingMore && !loadingAll
+                          ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading…</>
+                          : <><span className="material-symbols-outlined text-[16px]">expand_more</span> Load More</>}
+                      </button>
+                      <button
+                        onClick={loadAll}
+                        disabled={loadingMore}
+                        className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-sm font-bold text-white transition-colors hover:bg-black dark:bg-dark-accent dark:text-dark-bg dark:hover:opacity-90 disabled:opacity-50"
+                      >
+                        {loadingAll
+                          ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading All…</>
+                          : <><span className="material-symbols-outlined text-[16px]">unfold_more</span> Load All</>}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
 
               {continuationToken && (
                 <div className="lg:hidden flex justify-center">
-                  <button
-                    onClick={loadMore}
-                    disabled={loadingMore}
-                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-50"
-                  >
-                    {loadingMore
-                      ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading…</>
-                      : <><span className="material-symbols-outlined text-[16px]">expand_more</span> Load More</>}
-                  </button>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      onClick={loadMore}
+                      disabled={loadingMore}
+                      className="flex items-center gap-2 px-6 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-50"
+                    >
+                      {loadingMore && !loadingAll
+                        ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading…</>
+                        : <><span className="material-symbols-outlined text-[16px]">expand_more</span> Load More</>}
+                    </button>
+                    <button
+                      onClick={loadAll}
+                      disabled={loadingMore}
+                      className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-sm font-bold text-white transition-colors hover:bg-black dark:bg-dark-accent dark:text-dark-bg dark:hover:opacity-90 disabled:opacity-50"
+                    >
+                      {loadingAll
+                        ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading All…</>
+                        : <><span className="material-symbols-outlined text-[16px]">unfold_more</span> Load All</>}
+                    </button>
+                  </div>
                 </div>
               )}
             </>
@@ -1105,15 +1162,26 @@ export default function BrowserPage({ settings }) {
               <p className="font-bold text-on-surface-variant dark:text-dark-text-muted">No matching loaded results</p>
               <p className="text-sm text-slate-400 dark:text-dark-text-faint max-w-xs">Nexus returned assets, but the local refinement layer filtered all currently loaded rows out.</p>
               {continuationToken && (
-                <button
-                  onClick={loadMore}
-                  disabled={loadingMore}
-                  className="mt-2 inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-on-surface-variant transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-dark-border dark:text-dark-text-muted dark:hover:bg-dark-surface-2"
-                >
-                  {loadingMore
-                    ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading…</>
-                    : <><span className="material-symbols-outlined text-[16px]">expand_more</span> Load More</>}
-                </button>
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    onClick={loadMore}
+                    disabled={loadingMore}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-on-surface-variant transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-dark-border dark:text-dark-text-muted dark:hover:bg-dark-surface-2"
+                  >
+                    {loadingMore && !loadingAll
+                      ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading…</>
+                      : <><span className="material-symbols-outlined text-[16px]">expand_more</span> Load More</>}
+                  </button>
+                  <button
+                    onClick={loadAll}
+                    disabled={loadingMore}
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-dark-accent dark:text-dark-bg dark:hover:opacity-90"
+                  >
+                    {loadingAll
+                      ? <><span className="material-symbols-outlined text-[16px] animate-spin">refresh</span> Loading All…</>
+                      : <><span className="material-symbols-outlined text-[16px]">unfold_more</span> Load All</>}
+                  </button>
+                </div>
               )}
             </div>
           )}

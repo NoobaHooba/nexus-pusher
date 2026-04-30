@@ -35,6 +35,10 @@ function buildClientTargets(settings, repoName) {
   const selectedRepo = String(repoName || '').trim().replace(/^\/+|\/+$/g, '') || '<repository>';
   const baseUrl = trimBaseUrl(settings?.nexusBrowserUrl || settings?.nexusUrl || 'https://nexus.example.com');
   const repositoryUrl = `${baseUrl}/repository/${selectedRepo}/`;
+  const dockerRegistryBase = trimBaseUrl(settings?.dockerRegistry || '').replace(/^https?:\/\//i, '')
+    || `${baseUrl.replace(/^https?:\/\//i, '')}/repository`;
+  const dockerRegistry = `${dockerRegistryBase.replace(/\/+$/, '')}/${selectedRepo}`;
+  const dockerHost = dockerRegistryBase.split('/')[0] || '<registry-host>';
 
   return {
     baseUrl,
@@ -42,33 +46,36 @@ function buildClientTargets(settings, repoName) {
     repositoryUrl,
     cargoIndexUrl: `sparse+${repositoryUrl}`,
     conanRemoteUrl: repositoryUrl,
+    dockerRegistry,
+    dockerHost,
     username: settings?.username || '<username>',
   };
 }
 
 function ClientOnlyZone({ repoType, settings, repoName }) {
-  const { selectedRepo, cargoIndexUrl, conanRemoteUrl, username } = buildClientTargets(settings, repoName);
+  const { selectedRepo, cargoIndexUrl, conanRemoteUrl, dockerRegistry, dockerHost, username } = buildClientTargets(settings, repoName);
   const isCargo = repoType === 'cargo';
+  const isDocker = repoType === 'docker';
 
   return (
     <div className="flex flex-col gap-6">
       <div className="bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-3xl p-10 flex flex-col gap-5">
         <div className="w-16 h-16 rounded-2xl bg-accent-dim dark:bg-dark-accent-dim flex items-center justify-center">
           <span className="material-symbols-outlined text-3xl text-accent dark:text-dark-accent">
-            {isCargo ? 'package_2' : 'deployed_code'}
+            {isCargo ? 'package_2' : isDocker ? 'inventory_2' : 'deployed_code'}
           </span>
         </div>
         <div className="flex flex-col gap-2">
           <h4 className="text-2xl font-bold text-primary dark:text-dark-text">
-            {isCargo ? 'Cargo Uses cargo publish' : 'Conan Uses conan upload'}
+            {isCargo ? 'Cargo Uses cargo publish' : isDocker ? 'Docker Uses docker push' : 'Conan Uses conan upload'}
           </h4>
           <p className="text-on-surface-variant dark:text-dark-text-muted max-w-2xl">
-            Nexus requires the native {isCargo ? 'Cargo' : 'Conan'} client for this format, so this app guides the target repository and exact publish commands instead of uploading the package file directly.
+            Nexus requires the native {isCargo ? 'Cargo' : isDocker ? 'Docker' : 'Conan'} client for this format, so this app guides the target repository and exact publish commands instead of uploading the package file directly.
           </p>
         </div>
         <div className="rounded-2xl bg-slate-50 dark:bg-dark-surface-2 border border-slate-100 dark:border-dark-border px-5 py-4 flex flex-col gap-3">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">
-            {isCargo ? 'Cargo Client Flow' : 'Conan Client Flow'}
+            {isCargo ? 'Cargo Client Flow' : isDocker ? 'Docker Client Flow' : 'Conan Client Flow'}
           </p>
           {isCargo ? (
             <>
@@ -76,6 +83,14 @@ function ClientOnlyZone({ repoType, settings, repoName }) {
               <code className="block text-sm font-mono text-primary dark:text-dark-text">index = "{cargoIndexUrl}"</code>
               <code className="block text-sm font-mono text-primary dark:text-dark-text">cargo login --registry {selectedRepo}</code>
               <code className="block text-sm font-mono text-primary dark:text-dark-text">cargo publish --registry {selectedRepo}</code>
+            </>
+          ) : isDocker ? (
+            <>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">docker load -i &lt;archive.tar&gt;</code>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">docker image ls</code>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">docker tag &lt;loaded-image&gt;:&lt;tag&gt; {dockerRegistry}/&lt;image&gt;:&lt;tag&gt;</code>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">docker login {dockerHost}</code>
+              <code className="block text-sm font-mono text-primary dark:text-dark-text">docker push {dockerRegistry}/&lt;image&gt;:&lt;tag&gt;</code>
             </>
           ) : (
             <>
@@ -86,7 +101,7 @@ function ClientOnlyZone({ repoType, settings, repoName }) {
           )}
           {!repoName && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
-              Select a {isCargo ? 'Cargo' : 'Conan'} repository above to generate the exact target.
+              Select a {isCargo ? 'Cargo' : isDocker ? 'Docker' : 'Conan'} repository above to generate the exact target.
             </p>
           )}
         </div>
@@ -170,7 +185,7 @@ export default function UploadZone({ onFiles, repoType, stagedCount, settings, r
 
   const hint = REPO_HINTS[repoType];
 
-  if (repoType === 'cargo' || repoType === 'conan') {
+  if (repoType === 'cargo' || repoType === 'conan' || repoType === 'docker') {
     return <ClientOnlyZone repoType={repoType} settings={settings} repoName={repoName} />;
   }
 

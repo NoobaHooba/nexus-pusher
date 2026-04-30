@@ -141,23 +141,10 @@ export function uploadPypi({ nexusUrl, repo, username, password, file, onProgres
   return backendUpload({ type: 'pypi', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
 }
 export function uploadDocker({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
-  const { registry, registryHost, registryUrl } = buildDockerRegistryTarget({ nexusUrl, repo, settings });
-  return backendUpload({
-    type: 'docker',
-    nexusUrl,
-    repo,
-    username,
-    password,
-    file,
-    extra: {
-      ...(extra || {}),
-      registry,
-      registryHost,
-      registryUrl,
-    },
-    onProgress,
-    settings,
-  });
+  const { registry, registryHost } = buildDockerRegistryTarget({ nexusUrl, repo, settings });
+  return Promise.reject(new Error(
+    `Docker repositories must be pushed with the Docker client. Run docker load -i ${file?.name || '<archive.tar>'}, docker tag <loaded-image>:<tag> ${registry}/<image>:<tag>, docker login ${registryHost || '<registry-host>'}, then docker push ${registry}/<image>:<tag>.`
+  ));
 }
 export function uploadCargo({ nexusUrl, repo, settings }) {
   const { selectedRepo, repositoryUrl } = buildRepositoryTarget({ nexusUrl, repo, settings });
