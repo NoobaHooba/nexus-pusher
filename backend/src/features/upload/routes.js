@@ -2,9 +2,12 @@ const express = require('express');
 const multer  = require('multer');
 const fs      = require('fs');
 const router  = express.Router();
+const { formatByteSize, getConfig } = require('../../app/config');
 const { record } = require('../../shared/persistence/db');
 const { buildArtifactPath, normalizeArtifactPath } = require('../../shared/artifacts/paths');
 const { detectArtifact } = require('../../shared/artifacts/metadata');
+const { safeUploadFilename } = require('../../shared/http/uploadFilename');
+const { UPLOAD_DIR, ensureUploadTempDirs } = require('../../shared/http/tempUploads');
 
 const mavenUploader  = require('./uploaders/maven');
 const npmUploader    = require('./uploaders/npm');
@@ -16,17 +19,17 @@ const aptUploader    = require('./uploaders/apt');
 const helmUploader   = require('./uploaders/helm');
 const rawUploader    = require('./uploaders/raw');
 
-const UPLOAD_DIR = '/tmp/nexus-pusher-uploads';
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const config = getConfig();
+ensureUploadTempDirs();
 
 const storage = multer.diskStorage({
   destination: UPLOAD_DIR,
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  filename: (req, file, cb) => cb(null, safeUploadFilename(file.originalname)),
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 1 * 1024 * 1024 * 1024 },
+  limits: { fileSize: config.uploadMaxBytes },
 });
 
 const uploaderMap = {
@@ -178,7 +181,7 @@ router.post('/:type', upload.array('files'), async (req, res) => {
 
 router.use((err, req, res, next) => {
   if (err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ error: 'File too large — maximum upload size is 1 GB' });
+    return res.status(413).json({ error: `File too large — maximum upload size is ${formatByteSize(config.uploadMaxBytes)}` });
   }
   next(err);
 });

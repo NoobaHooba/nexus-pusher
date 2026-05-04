@@ -8,6 +8,7 @@ const STATUS_CONFIG = {
   done:      { label: 'Done',      bgClass: 'bg-green-50 dark:bg-green-900/20 text-accent dark:text-dark-accent',             iconBg: 'bg-green-50 dark:bg-green-900/20 text-accent dark:text-dark-accent',           icon: 'check_circle',  cardClass: 'border-slate-50 dark:border-dark-border opacity-80' },
   warning:   { label: 'Duplicate', bgClass: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400',           iconBg: 'bg-amber-50 dark:bg-amber-900/20 text-amber-500 dark:text-amber-400',          icon: 'content_copy',  cardClass: 'border-amber-100 dark:border-amber-800/40' },
   error:     { label: 'Failed',    bgClass: 'bg-red-50 dark:bg-red-900/20 text-red-500',                                      iconBg: 'bg-red-50 dark:bg-red-900/20 text-red-500',                                  icon: 'report',        cardClass: 'border-slate-50 dark:border-dark-border' },
+  canceled:  { label: 'Canceled',  bgClass: 'bg-slate-100 dark:bg-dark-surface-2 text-slate-500 dark:text-dark-text-muted',   iconBg: 'bg-slate-50 dark:bg-dark-surface-2 text-slate-400 dark:text-dark-text-faint', icon: 'block',         cardClass: 'border-slate-50 dark:border-dark-border opacity-70' },
 };
 
 function formatSize(bytes) {
@@ -70,7 +71,7 @@ function RetryBadge({ retryCount }) {
   );
 }
 
-export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryAllFailed, onReorder, settings }) {
+export default function UploadQueue({ queue, onClearCompleted, onCancel, onRetry, onRetryAllFailed, onReorder, settings }) {
   const dragItemId = useRef(null);
   const [overItemId, setOverItemId] = useState(null);
 
@@ -83,7 +84,7 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
   const dupCount     = queue.filter(i => i.status === 'warning').length;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="upload-queue-tight flex flex-col gap-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
@@ -138,6 +139,8 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
           const isWarning   = item.status === 'warning';
           const isDone      = item.status === 'done';
           const isPending   = item.status === 'pending';
+          const isCanceled  = item.status === 'canceled';
+          const isCancelable = isPending || isUploading;
           const isDragOver  = overItemId === item.id;
           const nexusEntryUrl = resolveNexusEntryUrl(
             settings,
@@ -156,7 +159,7 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
               onDrop={isPending      ? (e) => handleDrop(e, item.id)      : undefined}
               onDragEnd={isPending   ? handleDragEnd                       : undefined}
               onDragLeave={isPending ? () => setOverItemId(null)           : undefined}
-              className={`flex flex-col gap-4 p-5 bg-white dark:bg-dark-surface rounded-2xl border shadow-sm transition-all hover:shadow-md relative overflow-hidden
+              className={`upload-queue-card-tight flex flex-col gap-4 p-5 bg-white dark:bg-dark-surface rounded-2xl border shadow-sm transition-all hover:shadow-md relative overflow-hidden
                 ${cfg.cardClass}
                 ${isDragOver ? 'ring-2 ring-accent/40 scale-[1.015] shadow-md' : ''}
                 ${isPending ? 'cursor-grab active:cursor-grabbing' : ''}
@@ -167,6 +170,7 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
               {isWarning   && <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400" />}
               {isDone      && <div className="absolute top-0 left-0 w-1.5 h-full bg-green-400" />}
               {isError     && <div className="absolute top-0 left-0 w-1.5 h-full bg-red-400" />}
+              {isCanceled  && <div className="absolute top-0 left-0 w-1.5 h-full bg-slate-300 dark:bg-slate-600" />}
 
               <div className="flex items-center gap-5">
                 {isPending && (
@@ -199,6 +203,7 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
                     isUploading ? 'text-accent dark:text-dark-accent'
                     : isError   ? 'text-red-400'
                     : isWarning ? 'text-amber-500'
+                    : isCanceled ? 'text-slate-400 dark:text-dark-text-faint'
                     : 'text-on-surface-variant dark:text-dark-text-muted'
                   }`}>
                     {formatSize(item.size)}{item.speed ? ` • ${item.speed}` : ''}{item.statusText ? ` • ${item.statusText}` : ''}
@@ -219,6 +224,15 @@ export default function UploadQueue({ queue, onClearCompleted, onRetry, onRetryA
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {isCancelable && (
+                    <button
+                      onClick={() => onCancel?.(item.id)}
+                      title={isUploading ? 'Cancel upload' : 'Remove from queue'}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-slate-400 dark:text-dark-text-faint text-lg">close</span>
+                    </button>
+                  )}
                   {/* Error: plain retry (re-runs duplicate check too) */}
                   {isError && (
                     <button

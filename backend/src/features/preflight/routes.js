@@ -1,21 +1,24 @@
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
+const { formatByteSize, getConfig } = require('../../app/config');
 const { buildPreflight } = require('./service');
+const { safeUploadFilename } = require('../../shared/http/uploadFilename');
+const { PREFLIGHT_UPLOAD_DIR, ensureUploadTempDirs } = require('../../shared/http/tempUploads');
 
 const router = express.Router();
 
-const UPLOAD_DIR = '/tmp/nexus-pusher-preflight';
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const config = getConfig();
+ensureUploadTempDirs();
 
 const storage = multer.diskStorage({
-  destination: UPLOAD_DIR,
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  destination: PREFLIGHT_UPLOAD_DIR,
+  filename: (req, file, cb) => cb(null, safeUploadFilename(file.originalname)),
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 512 * 1024 * 1024 },
+  limits: { fileSize: config.preflightMaxBytes },
 });
 
 router.post('/:type', upload.single('file'), async (req, res) => {
@@ -69,6 +72,13 @@ router.post('/:type', upload.single('file'), async (req, res) => {
   } finally {
     fs.unlink(file.path, () => {});
   }
+});
+
+router.use((err, req, res, next) => {
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: `File too large for preflight — maximum inspection size is ${formatByteSize(config.preflightMaxBytes)}` });
+  }
+  next(err);
 });
 
 module.exports = router;

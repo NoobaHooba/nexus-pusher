@@ -48,6 +48,14 @@ spec:
               value: "3001"
             - name: DATA_DIR
               value: /app/data
+            - name: DOCKER_UPLOAD_URL
+              value: ""
+            - name: UPLOAD_MAX_SIZE
+              value: 1gb
+            - name: PREFLIGHT_MAX_SIZE
+              value: 512mb
+            - name: TEMP_UPLOAD_MAX_AGE
+              value: 24h
           volumeMounts:
             - name: data
               mountPath: /app/data

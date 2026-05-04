@@ -31,6 +31,10 @@ function trimBaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
 
+function isHttpUrl(value) {
+  return /^https?:\/\//i.test(String(value || '').trim());
+}
+
 function buildClientTargets(settings, repoName) {
   const selectedRepo = String(repoName || '').trim().replace(/^\/+|\/+$/g, '') || '<repository>';
   const baseUrl = trimBaseUrl(settings?.nexusBrowserUrl || settings?.nexusUrl || 'https://nexus.example.com');
@@ -39,6 +43,7 @@ function buildClientTargets(settings, repoName) {
     || `${baseUrl.replace(/^https?:\/\//i, '')}/repository`;
   const dockerRegistry = `${dockerRegistryBase.replace(/\/+$/, '')}/${selectedRepo}`;
   const dockerHost = dockerRegistryBase.split('/')[0] || '<registry-host>';
+  const dockerUploadUrl = trimBaseUrl(settings?.dockerUploadUrl || '');
 
   return {
     baseUrl,
@@ -48,18 +53,90 @@ function buildClientTargets(settings, repoName) {
     conanRemoteUrl: repositoryUrl,
     dockerRegistry,
     dockerHost,
+    dockerUploadUrl,
     username: settings?.username || '<username>',
   };
 }
 
-function ClientOnlyZone({ repoType, settings, repoName }) {
-  const { selectedRepo, cargoIndexUrl, conanRemoteUrl, dockerRegistry, dockerHost, username } = buildClientTargets(settings, repoName);
-  const isCargo = repoType === 'cargo';
-  const isDocker = repoType === 'docker';
+function buildClientCommands({ repoType, selectedRepo, cargoIndexUrl, conanRemoteUrl, dockerRegistry, dockerHost, username }) {
+  if (repoType === 'cargo') {
+    return [
+      `[registries.${selectedRepo}]`,
+      `index = "${cargoIndexUrl}"`,
+      `cargo login --registry ${selectedRepo}`,
+      `cargo publish --registry ${selectedRepo}`,
+    ];
+  }
+
+  if (repoType === 'docker') {
+    return [
+      'docker load -i <archive.tar>',
+      'docker image ls',
+      `docker tag <loaded-image>:<tag> ${dockerRegistry}/<image>:<tag>`,
+      `docker login ${dockerHost}`,
+      `docker push ${dockerRegistry}/<image>:<tag>`,
+    ];
+  }
+
+  return [
+    `conan remote add ${selectedRepo} ${conanRemoteUrl}`,
+    `conan remote login ${selectedRepo} ${username}`,
+    `conan upload <name>/<version>@<user>/<channel> -r ${selectedRepo}`,
+  ];
+}
+
+function CommandList({ commands }) {
+  const [copiedIndex, setCopiedIndex] = useState(null);
+
+  const copyCommand = async (command, index) => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex(null), 1200);
+    } catch (_) {
+      setCopiedIndex(null);
+    }
+  };
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-3xl p-10 flex flex-col gap-5">
+    <div className="flex flex-col gap-2">
+      {commands.map((command, index) => (
+        <div key={`${command}-${index}`} className="flex items-center gap-2 rounded-xl bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border px-3 py-2">
+          <code className="flex-1 overflow-x-auto text-sm font-mono text-primary dark:text-dark-text whitespace-nowrap">
+            {command}
+          </code>
+          <button
+            type="button"
+            onClick={() => copyCommand(command, index)}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 dark:text-dark-text-faint hover:text-accent dark:hover:text-dark-accent hover:bg-accent-dim/40 dark:hover:bg-dark-accent-dim transition-colors"
+            title="Copy command"
+          >
+            <span className="material-symbols-outlined text-[17px]">{copiedIndex === index ? 'check' : 'content_copy'}</span>
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ClientOnlyZone({ repoType, settings, repoName }) {
+  const { selectedRepo, cargoIndexUrl, conanRemoteUrl, dockerRegistry, dockerHost, dockerUploadUrl, username } = buildClientTargets(settings, repoName);
+  const isCargo = repoType === 'cargo';
+  const isDocker = repoType === 'docker';
+  const commands = buildClientCommands({
+    repoType,
+    selectedRepo,
+    cargoIndexUrl,
+    conanRemoteUrl,
+    dockerRegistry,
+    dockerHost,
+    username,
+  });
+  const showDockerUploadLink = isDocker && isHttpUrl(dockerUploadUrl);
+
+  return (
+    <div className="upload-page-tight flex flex-col gap-6">
+      <div className="upload-zone-tight bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-3xl p-10 flex flex-col gap-5">
         <div className="w-16 h-16 rounded-2xl bg-accent-dim dark:bg-dark-accent-dim flex items-center justify-center">
           <span className="material-symbols-outlined text-3xl text-accent dark:text-dark-accent">
             {isCargo ? 'package_2' : isDocker ? 'inventory_2' : 'deployed_code'}
@@ -77,27 +154,17 @@ function ClientOnlyZone({ repoType, settings, repoName }) {
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">
             {isCargo ? 'Cargo Client Flow' : isDocker ? 'Docker Client Flow' : 'Conan Client Flow'}
           </p>
-          {isCargo ? (
-            <>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">[registries.{selectedRepo}]</code>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">index = "{cargoIndexUrl}"</code>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">cargo login --registry {selectedRepo}</code>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">cargo publish --registry {selectedRepo}</code>
-            </>
-          ) : isDocker ? (
-            <>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">docker load -i &lt;archive.tar&gt;</code>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">docker image ls</code>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">docker tag &lt;loaded-image&gt;:&lt;tag&gt; {dockerRegistry}/&lt;image&gt;:&lt;tag&gt;</code>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">docker login {dockerHost}</code>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">docker push {dockerRegistry}/&lt;image&gt;:&lt;tag&gt;</code>
-            </>
-          ) : (
-            <>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">conan remote add {selectedRepo} {conanRemoteUrl}</code>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">conan remote login {selectedRepo} {username}</code>
-              <code className="block text-sm font-mono text-primary dark:text-dark-text">conan upload &lt;name&gt;/&lt;version&gt;@&lt;user&gt;/&lt;channel&gt; -r {selectedRepo}</code>
-            </>
+          <CommandList commands={commands} />
+          {showDockerUploadLink && (
+            <a
+              href={dockerUploadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-flex w-fit items-center gap-2 rounded-xl bg-primary dark:bg-dark-accent px-4 py-2.5 text-sm font-bold text-white dark:text-dark-bg hover:bg-black dark:hover:opacity-90 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[18px]">open_in_new</span>
+              Open Docker upload portal
+            </a>
           )}
           {!repoName && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
@@ -190,7 +257,7 @@ export default function UploadZone({ onFiles, repoType, stagedCount, settings, r
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="upload-page-tight flex flex-col gap-6">
       {warnings.length > 0 && (
         <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-2xl">
           <span className="material-symbols-outlined text-amber-500 text-[22px] flex-shrink-0 mt-0.5">warning</span>
@@ -222,7 +289,7 @@ export default function UploadZone({ onFiles, repoType, stagedCount, settings, r
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
         onClick={() => inputRef.current.click()}
-        className={`relative group border-2 border-dashed rounded-3xl p-16 bg-white dark:bg-dark-surface flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-200 ${
+        className={`upload-zone-tight relative group border-2 border-dashed rounded-3xl p-16 bg-white dark:bg-dark-surface flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-200 ${
           pasteFlash
             ? 'border-accent bg-accent-dim/20 dark:bg-dark-accent-dim/30 scale-[1.01]'
             : dragging

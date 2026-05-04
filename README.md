@@ -136,6 +136,10 @@ Important environment variables:
 - `NEXUS_URL`: Nexus API URL reachable from the backend
 - `NEXUS_BROWSER_URL`: Nexus URL reachable from the user’s browser
 - `DOCKER_REGISTRY`: optional Docker registry hint shown in the UI
+- `DOCKER_UPLOAD_URL`: optional external Docker upload portal shown on the Docker repo flow. `DOCKER_UPLOAD_PORTAL_URL` is also accepted.
+- `UPLOAD_MAX_SIZE`: max backend upload request size, default `1gb`
+- `PREFLIGHT_MAX_SIZE`: max artifact inspection upload size, default `512mb`
+- `TEMP_UPLOAD_MAX_AGE`: age after which leftover temp uploads are removed on startup, default `24h`
 
 Typical container values:
 
@@ -144,7 +148,14 @@ PORT=3001
 DATA_DIR=/app/data
 NEXUS_URL=http://nexus:8081
 NEXUS_BROWSER_URL=http://localhost:8081
+DOCKER_REGISTRY=localhost:5000
+DOCKER_UPLOAD_URL=https://docker-upload.example.com
+UPLOAD_MAX_SIZE=1gb
+PREFLIGHT_MAX_SIZE=512mb
+TEMP_UPLOAD_MAX_AGE=24h
 ```
+
+Size values accept raw bytes or `kb`, `mb`, and `gb` suffixes. Duration values accept raw milliseconds or `s`, `m`, `h`, and `d` suffixes.
 
 ### User-managed login
 

@@ -66,7 +66,7 @@ export default function PreflightReview({
   const readyCount = items.filter((item) => ['ready', 'warning'].includes(item.reviewStatus)).length;
 
   return (
-    <section className="flex flex-col gap-5">
+    <section className="preflight-tight flex flex-col gap-5">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint">Stage 3 · Review & Confirm</p>
@@ -103,7 +103,7 @@ export default function PreflightReview({
           const favorite = selectedRepo && favorites.includes(selectedRepo);
 
           return (
-            <article key={item.id} className="bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-3xl p-6 flex flex-col gap-5 shadow-sm">
+            <article key={item.id} className="preflight-card-tight bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-3xl p-6 flex flex-col gap-5 shadow-sm">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <div className="flex items-center gap-3 flex-wrap">

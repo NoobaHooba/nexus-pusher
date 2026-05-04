@@ -10,7 +10,7 @@ function formatWhen(timestamp) {
 
 export default function RecentActivity({ items, onReuse }) {
   return (
-    <section className="bg-white dark:bg-dark-surface rounded-3xl border border-slate-100 dark:border-dark-border p-6 flex flex-col gap-4 shadow-sm">
+    <section className="recent-activity-tight bg-white dark:bg-dark-surface rounded-3xl border border-slate-100 dark:border-dark-border p-6 flex flex-col gap-4 shadow-sm">
       <div>
         <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint">Stage 4 · Reuse Context</p>
         <h3 className="text-xl font-extrabold text-primary dark:text-dark-text mt-1">Recent Successful Pushes</h3>

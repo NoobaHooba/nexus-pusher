@@ -56,7 +56,7 @@ export default function RepoSelector({
   const suggestedRepos = rankedRepos.slice(0, 3);
 
   return (
-    <section>
+    <section className="repo-selector-tight">
       <div className="flex items-center justify-between mb-8">
         <h3 className="text-xl font-bold tracking-tight text-primary dark:text-dark-text">Target Repositories</h3>
         <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 dark:text-dark-text-faint">11 Available Types</span>
@@ -93,7 +93,7 @@ export default function RepoSelector({
       {active && (() => {
         const type = REPO_TYPES.find(r => r.id === active);
         return (
-          <div className="mt-6 flex items-start gap-4 bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-2xl px-6 py-4 shadow-sm">
+          <div className="repo-selector-card-tight mt-6 flex items-start gap-4 bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border rounded-2xl px-6 py-4 shadow-sm">
             <span className="material-symbols-outlined text-accent dark:text-dark-accent text-[20px]">dns</span>
             <div className="flex flex-col gap-0.5 flex-1">
               <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-dark-text-faint">

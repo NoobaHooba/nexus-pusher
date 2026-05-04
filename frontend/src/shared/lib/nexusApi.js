@@ -86,7 +86,13 @@ export async function runPreflight({ type, nexusUrl, repo, username, password, f
   return json;
 }
 
-async function backendUpload({ type, nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
+function createAbortError() {
+  const error = new Error('Upload canceled');
+  error.name = 'AbortError';
+  return error;
+}
+
+async function backendUpload({ type, nexusUrl, repo, username, password, file, extra, onProgress, settings, signal }) {
   const fd = new FormData();
   fd.append('files', file, file.name);
   fd.append('nexusUrl', nexusUrl || '');
@@ -100,7 +106,20 @@ async function backendUpload({ type, nexusUrl, repo, username, password, file, e
   }
 
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(createAbortError());
+      return;
+    }
+
     const xhr = new XMLHttpRequest();
+    const abortUpload = () => {
+      xhr.abort();
+    };
+    const cleanup = () => {
+      signal?.removeEventListener('abort', abortUpload);
+    };
+
+    signal?.addEventListener('abort', abortUpload, { once: true });
     xhr.open('POST', apiUrl(settings, `/api/upload/${type}`));
 
     xhr.upload.onprogress = (e) => {
@@ -110,6 +129,7 @@ async function backendUpload({ type, nexusUrl, repo, username, password, file, e
     };
 
     xhr.onload = () => {
+      cleanup();
       let body;
       try { body = JSON.parse(xhr.responseText); } catch (_) { body = {}; }
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -119,31 +139,43 @@ async function backendUpload({ type, nexusUrl, repo, username, password, file, e
       }
     };
 
-    xhr.onerror = () => reject(new Error(
-      'Cannot reach the backend — is the backend container running?'
-    ));
-    xhr.ontimeout = () => reject(new Error('Request timed out'));
+    xhr.onerror = () => {
+      cleanup();
+      reject(new Error('Cannot reach the backend — is the backend container running?'));
+    };
+    xhr.ontimeout = () => {
+      cleanup();
+      reject(new Error('Request timed out'));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(createAbortError());
+    };
     xhr.timeout = 0;
     xhr.send(fd);
   });
 }
 
-export function uploadMaven({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
-  return backendUpload({ type: 'maven', nexusUrl, repo, username, password, file, extra, onProgress, settings });
+export function uploadMaven({ nexusUrl, repo, username, password, file, extra, onProgress, settings, signal }) {
+  return backendUpload({ type: 'maven', nexusUrl, repo, username, password, file, extra, onProgress, settings, signal });
 }
-export function uploadNpm({ nexusUrl, repo, username, password, file, onProgress, settings }) {
-  return backendUpload({ type: 'npm', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
+export function uploadNpm({ nexusUrl, repo, username, password, file, onProgress, settings, signal }) {
+  return backendUpload({ type: 'npm', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings, signal });
 }
-export function uploadNuget({ nexusUrl, repo, username, password, file, onProgress, settings }) {
-  return backendUpload({ type: 'nuget', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
+export function uploadNuget({ nexusUrl, repo, username, password, file, onProgress, settings, signal }) {
+  return backendUpload({ type: 'nuget', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings, signal });
 }
-export function uploadPypi({ nexusUrl, repo, username, password, file, onProgress, settings }) {
-  return backendUpload({ type: 'pypi', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
+export function uploadPypi({ nexusUrl, repo, username, password, file, onProgress, settings, signal }) {
+  return backendUpload({ type: 'pypi', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings, signal });
 }
 export function uploadDocker({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
   const { registry, registryHost } = buildDockerRegistryTarget({ nexusUrl, repo, settings });
+  const dockerUploadUrl = String(settings?.dockerUploadUrl || '').trim();
+  const portalHint = /^https?:\/\//i.test(dockerUploadUrl)
+    ? ` Or use this deployment's Docker upload portal: ${dockerUploadUrl}.`
+    : '';
   return Promise.reject(new Error(
-    `Docker repositories must be pushed with the Docker client. Run docker load -i ${file?.name || '<archive.tar>'}, docker tag <loaded-image>:<tag> ${registry}/<image>:<tag>, docker login ${registryHost || '<registry-host>'}, then docker push ${registry}/<image>:<tag>.`
+    `Docker repositories must be pushed with the Docker client. Run docker load -i ${file?.name || '<archive.tar>'}, docker tag <loaded-image>:<tag> ${registry}/<image>:<tag>, docker login ${registryHost || '<registry-host>'}, then docker push ${registry}/<image>:<tag>.${portalHint}`
   ));
 }
 export function uploadCargo({ nexusUrl, repo, settings }) {
@@ -158,17 +190,17 @@ export function uploadConan({ nexusUrl, repo, settings }) {
     `Conan repositories must be uploaded with the Conan client. Add remote ${selectedRepo} at ${repositoryUrl} and run conan upload against that remote.`
   ));
 }
-export function uploadYum({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
-  return backendUpload({ type: 'yum', nexusUrl, repo, username, password, file, extra, onProgress, settings });
+export function uploadYum({ nexusUrl, repo, username, password, file, extra, onProgress, settings, signal }) {
+  return backendUpload({ type: 'yum', nexusUrl, repo, username, password, file, extra, onProgress, settings, signal });
 }
-export function uploadApt({ nexusUrl, repo, username, password, file, onProgress, settings }) {
-  return backendUpload({ type: 'apt', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
+export function uploadApt({ nexusUrl, repo, username, password, file, onProgress, settings, signal }) {
+  return backendUpload({ type: 'apt', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings, signal });
 }
-export function uploadHelm({ nexusUrl, repo, username, password, file, onProgress, settings }) {
-  return backendUpload({ type: 'helm', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings });
+export function uploadHelm({ nexusUrl, repo, username, password, file, onProgress, settings, signal }) {
+  return backendUpload({ type: 'helm', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings, signal });
 }
-export function uploadRaw({ nexusUrl, repo, username, password, file, extra, onProgress, settings }) {
-  return backendUpload({ type: 'raw', nexusUrl, repo, username, password, file, extra, onProgress, settings });
+export function uploadRaw({ nexusUrl, repo, username, password, file, extra, onProgress, settings, signal }) {
+  return backendUpload({ type: 'raw', nexusUrl, repo, username, password, file, extra, onProgress, settings, signal });
 }
 
 export const UPLOADERS = {

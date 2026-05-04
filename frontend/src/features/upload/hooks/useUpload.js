@@ -30,6 +30,30 @@ function isTransientError(message) {
   );
 }
 
+function isAbortError(error) {
+  return error?.name === 'AbortError';
+}
+
+function abortableDelay(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(Object.assign(new Error('Upload canceled'), { name: 'AbortError' }));
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(Object.assign(new Error('Upload canceled'), { name: 'AbortError' }));
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 function buildReviewStatus(item) {
   if (item.inspecting) return 'inspecting';
   if (!item.selectedRepo) return 'needs-input';
@@ -66,6 +90,7 @@ export function useUpload(settings, repoType, repoName, toast) {
   const [queue, setQueue] = useState([]);
   const [prefs, setPrefs] = useState(() => loadUploadPrefs(settings));
   const processingRef = useRef(false);
+  const activeUploadAbortersRef = useRef(new Map());
   const skipPersistPrefsRef = useRef(true);
   const toastRef = useRef(toast);
   const previousRepoType = useRef(repoType);
@@ -298,6 +323,9 @@ export function useUpload(settings, repoType, repoName, toast) {
         return currentQueue.map((entry) => (entry.id === item.id ? { ...entry, ...patch } : entry));
       }
 
+      const controller = new AbortController();
+      activeUploadAbortersRef.current.set(item.id, controller);
+
       setTimeout(async () => {
         const maxAttempts = MAX_AUTO_RETRIES + 1;
         let attempt = item.retryCount || 0;
@@ -311,7 +339,17 @@ export function useUpload(settings, repoType, repoName, toast) {
               statusText: `Retrying in ${delayMs / 1000}s… (attempt ${attempt + 1}/${maxAttempts})`,
               retryCount: attempt,
             });
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            try {
+              await abortableDelay(delayMs, controller.signal);
+            } catch (err) {
+              lastError = err;
+              break;
+            }
+          }
+
+          if (controller.signal.aborted) {
+            lastError = Object.assign(new Error('Upload canceled'), { name: 'AbortError' });
+            break;
           }
 
           updateQueueItem(item.id, {
@@ -330,6 +368,7 @@ export function useUpload(settings, repoType, repoName, toast) {
               file: item.file,
               extra: mergeDetectedExtra(item.repoType, item.extraFields, { coordinates: item.coordinates }),
               settings: item.settings,
+              signal: controller.signal,
               onProgress: (pct) => updateQueueItem(item.id, { progress: pct }),
             });
 
@@ -365,25 +404,38 @@ export function useUpload(settings, repoType, repoName, toast) {
             break;
           } catch (err) {
             lastError = err;
+            if (isAbortError(err)) break;
             if (!isTransientError(err.message)) break;
             attempt++;
           }
         }
 
         if (lastError) {
-          const exhausted = attempt >= maxAttempts && isTransientError(lastError.message);
-          const patch = {
-            status: 'error',
-            statusText: exhausted
-              ? `Failed after ${maxAttempts} attempts: ${lastError.message}`
-              : lastError.message,
-            retryCount: attempt,
-          };
-          updateQueueItem(item.id, patch);
-          saveUploadHistory({ ...item, ...patch }, MAX_HISTORY, item.settings);
-          toastRef.current?.error(patch.statusText, { title: item.name, duration: 7000 });
+          if (isAbortError(lastError)) {
+            const patch = {
+              status: 'canceled',
+              statusText: 'Canceled by user',
+              progress: 0,
+              retryCount: attempt,
+            };
+            updateQueueItem(item.id, patch);
+            toastRef.current?.info('Upload canceled', { title: item.name });
+          } else {
+            const exhausted = attempt >= maxAttempts && isTransientError(lastError.message);
+            const patch = {
+              status: 'error',
+              statusText: exhausted
+                ? `Failed after ${maxAttempts} attempts: ${lastError.message}`
+                : lastError.message,
+              retryCount: attempt,
+            };
+            updateQueueItem(item.id, patch);
+            saveUploadHistory({ ...item, ...patch }, MAX_HISTORY, item.settings);
+            toastRef.current?.error(patch.statusText, { title: item.name, duration: 7000 });
+          }
         }
 
+        activeUploadAbortersRef.current.delete(item.id);
         processingRef.current = false;
         processNext();
       }, 0);
@@ -427,7 +479,27 @@ export function useUpload(settings, repoType, repoName, toast) {
   }, [processNext, settings]);
 
   const clearCompleted = useCallback(() => {
-    setQueue((current) => current.filter((item) => item.status !== 'done'));
+    setQueue((current) => current.filter((item) => item.status !== 'done' && item.status !== 'canceled'));
+  }, []);
+
+  const cancelItem = useCallback((id) => {
+    const controller = activeUploadAbortersRef.current.get(id);
+    if (controller) controller.abort();
+
+    setQueue((current) => current.map((item) => {
+      if (item.id !== id || !['pending', 'uploading'].includes(item.status)) return item;
+      return {
+        ...item,
+        status: 'canceled',
+        progress: 0,
+        statusText: 'Canceled by user',
+      };
+    }));
+  }, []);
+
+  useEffect(() => () => {
+    activeUploadAbortersRef.current.forEach((controller) => controller.abort());
+    activeUploadAbortersRef.current.clear();
   }, []);
 
   const retryItem = useCallback((id) => {
@@ -481,6 +553,7 @@ export function useUpload(settings, repoType, repoName, toast) {
     totalSize,
     estimatedTime,
     clearCompleted,
+    cancelItem,
     retryItem,
     retryAllFailed,
     reorderQueue,

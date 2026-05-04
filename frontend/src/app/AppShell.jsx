@@ -48,7 +48,7 @@ export default function AppShell() {
   const {
     staged, stagedSize, stageFiles, removeStaged, cancelStaged, pushStaged,
     updateStagedRepo, updateStagedExtraFields, applyRepoToAll,
-    queue, totalSize, estimatedTime, clearCompleted, retryItem, retryAllFailed, reorderQueue,
+    queue, totalSize, estimatedTime, clearCompleted, cancelItem, retryItem, retryAllFailed, reorderQueue,
     preferences, toggleFavoriteRepo, recentActivity, reuseRecentActivity, buildEditableFields,
   } = useUpload(effectiveSettings, activeRepo, repoName, toast);
 
@@ -126,11 +126,11 @@ export default function AppShell() {
         onLogout={handleLogout}
       />
 
-      <main className={`ml-64 flex flex-col max-w-[1400px] ${denseMode ? 'p-5 gap-6' : 'p-10 gap-12'}`}>
+      <main className={`ml-64 flex flex-col max-w-[1400px] ${denseMode ? 'p-4 gap-4' : 'p-10 gap-12'}`}>
         {activePage === 'upload' && (
           <>
             <section>
-              <h2 className={`font-extrabold tracking-tight text-primary dark:text-dark-text ${denseMode ? 'text-[2rem] mb-2' : 'text-5xl mb-4'}`}>Upload Assets</h2>
+              <h2 className={`font-extrabold tracking-tight text-primary dark:text-dark-text ${denseMode ? 'text-2xl mb-1' : 'text-5xl mb-4'}`}>Upload Assets</h2>
             </section>
 
             <RepoSelector
@@ -146,8 +146,8 @@ export default function AppShell() {
               onToggleFavorite={toggleFavoriteRepo}
             />
 
-            <div className={`grid grid-cols-1 lg:grid-cols-12 ${denseMode ? 'gap-6' : 'gap-12'}`}>
-              <div className={`lg:col-span-7 flex flex-col ${denseMode ? 'gap-5' : 'gap-10'}`}>
+            <div className={`grid grid-cols-1 lg:grid-cols-12 ${denseMode ? 'gap-4' : 'gap-12'}`}>
+              <div className={`lg:col-span-7 flex flex-col ${denseMode ? 'gap-3' : 'gap-10'}`}>
                 <UploadZone
                   onFiles={stageFiles}
                   repoType={activeRepo}
@@ -179,6 +179,7 @@ export default function AppShell() {
                 <UploadQueue
                   queue={queue}
                   onClearCompleted={clearCompleted}
+                  onCancel={cancelItem}
                   onRetry={retryItem}
                   onRetryAllFailed={retryAllFailed}
                   onReorder={reorderQueue}

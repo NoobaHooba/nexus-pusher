@@ -17,6 +17,11 @@ services:
       - DATA_DIR=/app/data
       - NEXUS_URL=http://nexus:8081
       - NEXUS_BROWSER_URL=http://localhost:8081
+      - DOCKER_REGISTRY=
+      - DOCKER_UPLOAD_URL=
+      - UPLOAD_MAX_SIZE=1gb
+      - PREFLIGHT_MAX_SIZE=512mb
+      - TEMP_UPLOAD_MAX_AGE=24h
     volumes:
       - nexus-pusher-data:/app/data
     networks:

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiUrl } from '../../shared/lib/backendApi';
 
 const FORMAT_COLORS = {
@@ -60,6 +60,86 @@ function EmptyState({ icon, title, sub }) {
   );
 }
 
+function matchesSearch(values, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return true;
+  return values.some((value) => String(value || '').toLowerCase().includes(q));
+}
+
+function dedupeStrings(values) {
+  return [...new Set((values || []).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
+}
+
+function csvCell(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function exportCsv(filename, headers, rows) {
+  const csv = [
+    headers.map(csvCell).join(','),
+    ...rows.map((row) => row.map(csvCell).join(',')),
+  ].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function UserPills({ userIds, userMap, limit = 8 }) {
+  if (!userIds?.length) return <span className="text-xs text-slate-300 dark:text-dark-text-faint">None</span>;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {userIds.slice(0, limit).map((userId) => {
+        const user = userMap.get(userId);
+        return (
+          <span key={userId} title={user?.email || userId} className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-dark-surface-2 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:text-dark-text-muted">
+            {user?.isAdmin && <span className="material-symbols-outlined text-[11px] text-amber-500">shield</span>}
+            {user?.displayName || userId}
+          </span>
+        );
+      })}
+      {userIds.length > limit && (
+        <span className="text-[10px] text-slate-400 dark:text-dark-text-faint">+{userIds.length - limit}</span>
+      )}
+    </div>
+  );
+}
+
+function PrivilegePills({ privilegeIds, limit = 8 }) {
+  if (!privilegeIds?.length) return <span className="text-xs text-slate-300 dark:text-dark-text-faint">None</span>;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {privilegeIds.slice(0, limit).map((privilegeId) => (
+        <span key={privilegeId} className="inline-flex items-center gap-1 rounded-lg border border-slate-100 dark:border-dark-border bg-slate-50 dark:bg-dark-surface-2 px-2 py-0.5 text-[10px] font-mono text-on-surface-variant dark:text-dark-text-muted">
+          <span className="material-symbols-outlined text-[10px] text-accent dark:text-dark-accent">key</span>
+          {privilegeId}
+        </span>
+      ))}
+      {privilegeIds.length > limit && (
+        <span className="text-[10px] text-slate-400 dark:text-dark-text-faint">+{privilegeIds.length - limit}</span>
+      )}
+    </div>
+  );
+}
+
+function RolePills({ roleIds, limit = 8 }) {
+  if (!roleIds?.length) return <span className="text-xs text-slate-300 dark:text-dark-text-faint">None</span>;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {roleIds.slice(0, limit).map((roleId) => (
+        <span key={roleId} className="rounded-full bg-accent-dim/50 dark:bg-dark-accent-dim px-2 py-0.5 text-[10px] font-bold text-accent dark:text-dark-accent">
+          {roleId}
+        </span>
+      ))}
+      {roleIds.length > limit && (
+        <span className="text-[10px] text-slate-400 dark:text-dark-text-faint">+{roleIds.length - limit}</span>
+      )}
+    </div>
+  );
+}
+
 export default function LdapPage({ settings }) {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
@@ -69,6 +149,12 @@ export default function LdapPage({ settings }) {
   const [repoFilter, setRepoFilter]   = useState('all');
   const [userSearch, setUserSearch]   = useState('');
   const [matrixSearch, setMatrixSearch] = useState('');
+  const [permissionView, setPermissionView] = useState('roles');
+  const [permissionSearch, setPermissionSearch] = useState('');
+  const [permissionTypeFilter, setPermissionTypeFilter] = useState('all');
+  const [permissionSourceFilter, setPermissionSourceFilter] = useState('all');
+  const [permissionStatusFilter, setPermissionStatusFilter] = useState('all');
+  const [permissionAdminFilter, setPermissionAdminFilter] = useState('all');
   const [copied, setCopied]   = useState(null);
 
   const fetchData = useCallback(async () => {
@@ -111,8 +197,109 @@ export default function LdapPage({ settings }) {
     { id: 'repos',      label: 'Repositories', icon: 'inventory_2' },
     { id: 'roles',      label: 'Roles',        icon: 'badge' },
     { id: 'matrix',     label: 'Access Matrix',icon: 'grid_view' },
+    { id: 'permissions', label: 'Permissions', icon: 'admin_panel_settings', adminOnly: true, auditOnly: true },
     { id: 'users',      label: 'All Users',    icon: 'group', adminOnly: true },
   ];
+
+  const permissionAudit = data?.permissionAudit || null;
+  const permissionUserMap = useMemo(() => new Map((permissionAudit?.users || []).map((user) => [user.userId, user])), [permissionAudit]);
+  const permissionTypes = useMemo(() => dedupeStrings((permissionAudit?.privileges || []).map((privilege) => privilege.type || 'application')), [permissionAudit]);
+  const permissionSources = useMemo(() => dedupeStrings((permissionAudit?.users || []).map((user) => user.source || 'default')), [permissionAudit]);
+  const permissionStatuses = useMemo(() => dedupeStrings((permissionAudit?.users || []).map((user) => user.status || 'unknown')), [permissionAudit]);
+  const filteredPermissionRoles = useMemo(() => (
+    (permissionAudit?.roles || []).filter((role) => {
+      const matchAdmin = permissionAdminFilter === 'all' || (permissionAdminFilter === 'admin' ? role.isAdminRole : !role.isAdminRole);
+      return matchAdmin && matchesSearch([
+        role.id,
+        role.name,
+        role.description,
+        ...(role.effectiveUsers || []).map((userId) => permissionUserMap.get(userId)?.displayName || userId),
+        ...(role.effectivePrivileges || []),
+      ], permissionSearch);
+    })
+  ), [permissionAudit, permissionAdminFilter, permissionSearch, permissionUserMap]);
+  const filteredPermissionPrivileges = useMemo(() => (
+    (permissionAudit?.privileges || []).filter((privilege) => {
+      const matchType = permissionTypeFilter === 'all' || (privilege.type || 'application') === permissionTypeFilter;
+      const matchAdmin = permissionAdminFilter === 'all' || (permissionAdminFilter === 'admin' ? privilege.isWildcard : !privilege.isWildcard);
+      return matchType && matchAdmin && matchesSearch([
+        privilege.id,
+        privilege.name,
+        privilege.description,
+        privilege.type,
+        privilege.format,
+        privilege.repository,
+        ...(privilege.users || []).map((userId) => permissionUserMap.get(userId)?.displayName || userId),
+        ...(privilege.effectiveRoles || []),
+      ], permissionSearch);
+    })
+  ), [permissionAudit, permissionAdminFilter, permissionSearch, permissionTypeFilter, permissionUserMap]);
+  const filteredPermissionUsers = useMemo(() => (
+    (permissionAudit?.users || []).filter((user) => {
+      const matchSource = permissionSourceFilter === 'all' || (user.source || 'default') === permissionSourceFilter;
+      const matchStatus = permissionStatusFilter === 'all' || (user.status || 'unknown') === permissionStatusFilter;
+      const matchAdmin = permissionAdminFilter === 'all' || (permissionAdminFilter === 'admin' ? user.isAdmin : !user.isAdmin);
+      return matchSource && matchStatus && matchAdmin && matchesSearch([
+        user.userId,
+        user.displayName,
+        user.email,
+        user.source,
+        user.status,
+        ...(user.effectiveRoles || []),
+        ...(user.effectivePrivileges || []),
+      ], permissionSearch);
+    })
+  ), [permissionAdminFilter, permissionAudit, permissionSearch, permissionSourceFilter, permissionStatusFilter]);
+
+  const exportPermissions = () => {
+    const date = new Date().toISOString().slice(0, 10);
+    if (permissionView === 'privileges') {
+      exportCsv(
+        `nexus-privileges-users-${date}.csv`,
+        ['Privilege', 'Type', 'Repository', 'Actions', 'Effective Roles', 'Users'],
+        filteredPermissionPrivileges.map((privilege) => [
+          privilege.id,
+          privilege.type,
+          privilege.repository,
+          (privilege.actions || []).join('; '),
+          (privilege.effectiveRoles || []).join('; '),
+          (privilege.users || []).join('; '),
+        ]),
+      );
+      return;
+    }
+    if (permissionView === 'users') {
+      exportCsv(
+        `nexus-users-permissions-${date}.csv`,
+        ['User ID', 'Name', 'Email', 'Source', 'Status', 'Direct Roles', 'Effective Roles', 'Effective Privileges', 'Admin'],
+        filteredPermissionUsers.map((user) => [
+          user.userId,
+          user.displayName,
+          user.email,
+          user.source,
+          user.status,
+          (user.directRoles || []).join('; '),
+          (user.effectiveRoles || []).join('; '),
+          (user.effectivePrivileges || []).join('; '),
+          user.isAdmin ? 'yes' : 'no',
+        ]),
+      );
+      return;
+    }
+    exportCsv(
+      `nexus-roles-users-${date}.csv`,
+      ['Role ID', 'Role Name', 'Direct Users', 'Effective Users', 'Inherited Roles', 'Effective Privileges', 'Admin Role'],
+      filteredPermissionRoles.map((role) => [
+        role.id,
+        role.name,
+        (role.directUsers || []).join('; '),
+        (role.effectiveUsers || []).join('; '),
+        (role.inheritedRoles || []).join('; '),
+        (role.effectivePrivileges || []).join('; '),
+        role.isAdminRole ? 'yes' : 'no',
+      ]),
+    );
+  };
 
   if (!settings?.nexusUrl) {
     return (
@@ -156,7 +343,7 @@ export default function LdapPage({ settings }) {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-100 dark:border-dark-border pb-0">
-        {TABS.filter(t => !t.adminOnly || data?.canReadUsers).map(t => (
+        {TABS.filter(t => !t.adminOnly || (t.auditOnly ? data?.permissionAudit : data?.canReadUsers)).map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -471,6 +658,231 @@ export default function LdapPage({ settings }) {
                   </div>
                 )
               }
+            </div>
+          )}
+
+          {/* ADMIN PERMISSIONS TAB */}
+          {tab === 'permissions' && permissionAudit && (
+            <div className="flex flex-col gap-5">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard icon="group" label="Mapped Users" value={permissionAudit.stats?.users || 0} sub={`${permissionAudit.stats?.adminUsers || 0} admin`} />
+                <StatCard icon="badge" label="Roles" value={permissionAudit.stats?.roles || 0} />
+                <StatCard icon="key" label="Privileges" value={permissionAudit.stats?.privileges || 0} />
+                <StatCard icon="verified_user" label="Mapping" value={permissionAudit.complete ? 'Full' : 'Partial'} />
+              </div>
+
+              {(permissionAudit.warnings || []).length > 0 && (
+                <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 font-medium flex flex-col gap-1">
+                  {(permissionAudit.warnings || []).map((warning) => (
+                    <div key={warning} className="flex items-start gap-2">
+                      <span className="material-symbols-outlined text-[17px] mt-0.5">warning</span>
+                      <span>{warning}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-3 items-center">
+                <div className="flex rounded-xl border border-slate-200 dark:border-dark-border overflow-hidden">
+                  {[
+                    ['roles', 'By Role', 'badge'],
+                    ['privileges', 'By Privilege', 'key'],
+                    ['users', 'By User', 'person'],
+                  ].map(([id, label, icon]) => (
+                    <button
+                      key={id}
+                      onClick={() => setPermissionView(id)}
+                      className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors ${
+                        permissionView === id
+                          ? 'bg-primary dark:bg-dark-accent text-white dark:text-dark-bg'
+                          : 'bg-white dark:bg-dark-surface text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[15px]">{icon}</span>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="relative flex-1 min-w-[260px]">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint text-[18px]">search</span>
+                  <input
+                    value={permissionSearch}
+                    onChange={e => setPermissionSearch(e.target.value)}
+                    placeholder="Search users, roles, privileges, repositories…"
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 bg-white dark:bg-dark-surface placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
+                  />
+                </div>
+                {permissionView === 'privileges' && (
+                  <select
+                    value={permissionTypeFilter}
+                    onChange={e => setPermissionTypeFilter(e.target.value)}
+                    className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text bg-white dark:bg-dark-surface"
+                  >
+                    <option value="all">All privilege types</option>
+                    {permissionTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                )}
+                {permissionView === 'users' && (
+                  <>
+                    <select
+                      value={permissionSourceFilter}
+                      onChange={e => setPermissionSourceFilter(e.target.value)}
+                      className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text bg-white dark:bg-dark-surface"
+                    >
+                      <option value="all">All sources</option>
+                      {permissionSources.map((source) => <option key={source} value={source}>{source}</option>)}
+                    </select>
+                    <select
+                      value={permissionStatusFilter}
+                      onChange={e => setPermissionStatusFilter(e.target.value)}
+                      className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text bg-white dark:bg-dark-surface"
+                    >
+                      <option value="all">All statuses</option>
+                      {permissionStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  </>
+                )}
+                <select
+                  value={permissionAdminFilter}
+                  onChange={e => setPermissionAdminFilter(e.target.value)}
+                  className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text bg-white dark:bg-dark-surface"
+                >
+                  <option value="all">All access levels</option>
+                  <option value="admin">{permissionView === 'privileges' ? 'Wildcard/global only' : 'Admin/global only'}</option>
+                  <option value="standard">Standard only</option>
+                </select>
+                <button
+                  onClick={exportPermissions}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[16px]">download</span>
+                  Export CSV
+                </button>
+              </div>
+
+              {permissionView === 'roles' && (
+                <div className="grid grid-cols-1 gap-3">
+                  {filteredPermissionRoles.map((role) => (
+                    <article key={role.id} className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border p-5 flex flex-col gap-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-extrabold text-primary dark:text-dark-text">{role.name || role.id}</h4>
+                            {role.isAdminRole && <Badge label="Admin / Global" color="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" />}
+                          </div>
+                          <p className="text-xs font-mono text-slate-400 dark:text-dark-text-faint mt-0.5">{role.id}</p>
+                          {role.description && <p className="text-sm text-on-surface-variant dark:text-dark-text-muted mt-1">{role.description}</p>}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-2xl font-extrabold text-primary dark:text-dark-text leading-none">{(role.effectiveUsers || []).length}</p>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">effective users</p>
+                        </div>
+                      </div>
+                      {(role.inheritedRoles || []).length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint mb-1.5">Inherits Roles</p>
+                          <RolePills roleIds={role.inheritedRoles} />
+                        </div>
+                      )}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint mb-1.5">Direct Users</p>
+                          <UserPills userIds={role.directUsers || []} userMap={permissionUserMap} />
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint mb-1.5">Effective Users</p>
+                          <UserPills userIds={role.effectiveUsers || []} userMap={permissionUserMap} />
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint mb-1.5">Effective Privileges</p>
+                        <PrivilegePills privilegeIds={role.effectivePrivileges || []} limit={16} />
+                      </div>
+                    </article>
+                  ))}
+                  {filteredPermissionRoles.length === 0 && <EmptyState icon="badge" title="No roles match" sub="Try a different permission search." />}
+                </div>
+              )}
+
+              {permissionView === 'privileges' && (
+                <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-dark-border">
+                        <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Privilege</th>
+                        <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Scope</th>
+                        <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Roles</th>
+                        <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Users</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredPermissionPrivileges.map((privilege, i) => (
+                        <tr key={privilege.id} className={`border-b border-slate-50 dark:border-dark-border align-top ${i % 2 === 0 ? '' : 'bg-slate-50/30 dark:bg-dark-surface-2/30'}`}>
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono text-xs font-bold text-primary dark:text-dark-text">{privilege.id}</span>
+                              {privilege.isWildcard && <Badge label="Wildcard" color="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" />}
+                            </div>
+                            {privilege.description && <p className="text-xs text-on-surface-variant dark:text-dark-text-muted mt-1">{privilege.description}</p>}
+                          </td>
+                          <td className="px-5 py-3 text-xs text-on-surface-variant dark:text-dark-text-muted">
+                            <div className="flex flex-col gap-1">
+                              <span className="font-bold capitalize">{privilege.type || 'application'}</span>
+                              {privilege.repository && <span className="font-mono">{privilege.format}/{privilege.repository}</span>}
+                              {(privilege.actions || []).length > 0 && <span>{privilege.actions.join(', ')}</span>}
+                            </div>
+                          </td>
+                          <td className="px-5 py-3"><RolePills roleIds={privilege.effectiveRoles || []} limit={6} /></td>
+                          <td className="px-5 py-3"><UserPills userIds={privilege.users || []} userMap={permissionUserMap} limit={8} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {filteredPermissionPrivileges.length === 0 && <EmptyState icon="key_off" title="No privileges match" sub="Try a different permission search." />}
+                </div>
+              )}
+
+              {permissionView === 'users' && (
+                <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-dark-border">
+                        <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">User</th>
+                        <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Effective Roles</th>
+                        <th className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Effective Privileges</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredPermissionUsers.map((user, i) => (
+                        <tr key={user.userId} className={`border-b border-slate-50 dark:border-dark-border align-top ${i % 2 === 0 ? '' : 'bg-slate-50/30 dark:bg-dark-surface-2/30'}`}>
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-accent-dim/60 dark:bg-dark-accent-dim flex items-center justify-center text-xs font-extrabold text-primary dark:text-dark-accent shrink-0">
+                                {(user.displayName?.[0] || user.userId?.[0] || '?').toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-bold text-primary dark:text-dark-text truncate">{user.displayName || user.userId}</p>
+                                  {user.isAdmin && <Badge label="Admin" color="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" />}
+                                </div>
+                                <p className="text-xs text-on-surface-variant dark:text-dark-text-muted">{user.userId}</p>
+                                {user.email && <p className="text-xs text-slate-400 dark:text-dark-text-faint truncate">{user.email}</p>}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3">
+                            <RolePills roleIds={user.effectiveRoles || []} limit={10} />
+                          </td>
+                          <td className="px-5 py-3">
+                            <PrivilegePills privilegeIds={user.effectivePrivileges || []} limit={12} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {filteredPermissionUsers.length === 0 && <EmptyState icon="person_search" title="No users match" sub="Try a different permission search." />}
+                </div>
+              )}
             </div>
           )}
 

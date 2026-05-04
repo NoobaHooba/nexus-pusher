@@ -30,9 +30,9 @@ RUN rm -rf ./node_modules/better-sqlite3/build \
 FROM backend-deps-${INSTALL_MODE} AS runtime
 COPY src ./src
 
-RUN mkdir -p /tmp/nexus-pusher-uploads /app/data \
- && chgrp -R 0 /app /tmp/nexus-pusher-uploads \
- && chmod -R g=u /app /tmp/nexus-pusher-uploads
+RUN mkdir -p /tmp/nexus-pusher-uploads /tmp/nexus-pusher-preflight /app/data \
+ && chgrp -R 0 /app /tmp/nexus-pusher-uploads /tmp/nexus-pusher-preflight \
+ && chmod -R g=u /app /tmp/nexus-pusher-uploads /tmp/nexus-pusher-preflight
 
 EXPOSE 3001
 CMD ["node", "src/index.js"]
