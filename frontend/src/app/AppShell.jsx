@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import BrowserPage from '../features/browser/BrowserPage';
 import HistoryPage from '../features/history/HistoryPage';
 import LdapPage from '../features/ldap/LdapPage';
@@ -14,6 +14,7 @@ import Sidebar from '../shared/components/Sidebar';
 import ToastContainer from '../shared/components/ToastContainer';
 import { useDocumentTitle } from '../shared/hooks/useDocumentTitle';
 import { useToast } from '../shared/hooks/useToast';
+import { formatUserError } from '../shared/lib/errorMessages';
 import { fetchRepositories } from '../shared/lib/nexusApi';
 import { useAppShellState } from './appState';
 import { getSettingsStorageScope } from './storage';
@@ -30,6 +31,7 @@ export default function AppShell() {
     theme,
     denseMode,
     toggleTheme,
+    runtimeConfigError,
     effectiveSettings,
     repoNames,
     updateRepoName,
@@ -42,6 +44,7 @@ export default function AppShell() {
   const [availableRepos, setAvailableRepos] = useState([]);
   const [reposLoading, setReposLoading] = useState(false);
   const [reposError, setReposError] = useState('');
+  const runtimeConfigToastRef = useRef('');
   const repoName = repoNames[activeRepo] || '';
   const storageScope = getSettingsStorageScope(effectiveSettings);
 
@@ -57,6 +60,13 @@ export default function AppShell() {
     pending: queue.filter((item) => item.status === 'pending').length,
     failed: queue.filter((item) => item.status === 'error').length,
   });
+
+  useEffect(() => {
+    if (runtimeConfigError && runtimeConfigToastRef.current !== runtimeConfigError) {
+      runtimeConfigToastRef.current = runtimeConfigError;
+      toast.error(runtimeConfigError, { title: 'Deployment settings unavailable', duration: 8000 });
+    }
+  }, [runtimeConfigError, toast]);
 
   useEffect(() => {
     const { nexusUrl, username, password } = effectiveSettings || {};
@@ -79,7 +89,7 @@ export default function AppShell() {
       .catch((err) => {
         if (cancelled) return;
         setAvailableRepos([]);
-        setReposError(err.message || 'Could not load repositories');
+        setReposError(formatUserError(err, { action: 'loading repositories' }));
       })
       .finally(() => {
         if (!cancelled) setReposLoading(false);

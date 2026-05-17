@@ -87,14 +87,17 @@ function buildClientCommands({ repoType, selectedRepo, cargoIndexUrl, conanRemot
 
 function CommandList({ commands }) {
   const [copiedIndex, setCopiedIndex] = useState(null);
+  const [copyError, setCopyError] = useState('');
 
   const copyCommand = async (command, index) => {
     try {
       await navigator.clipboard.writeText(command);
+      setCopyError('');
       setCopiedIndex(index);
       setTimeout(() => setCopiedIndex(null), 1200);
     } catch (_) {
       setCopiedIndex(null);
+      setCopyError('Could not copy the command. Select the command text and copy it manually.');
     }
   };
 
@@ -115,6 +118,11 @@ function CommandList({ commands }) {
           </button>
         </div>
       ))}
+      {copyError && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+          {copyError}
+        </p>
+      )}
     </div>
   );
 }

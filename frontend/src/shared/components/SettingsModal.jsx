@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { apiUrl, getBackendBaseUrl } from '../lib/backendApi';
+import { createHttpError, formatUserError } from '../lib/errorMessages';
 
 const VALIDATE_TIMEOUT_MS = 15_000;
 
@@ -14,13 +15,17 @@ async function validateCredentials({ nexusUrl, username, password, backendUrl })
       signal: controller.signal,
     });
     clearTimeout(timer);
-    return await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw createHttpError(res.status, data.error || data.message, { action: 'saving settings' });
+    }
+    return data;
   } catch (err) {
     clearTimeout(timer);
     if (err.name === 'AbortError') {
-      return { ok: false, message: `Validation timed out after ${VALIDATE_TIMEOUT_MS / 1000} s — backend may be unreachable` };
+      return { ok: false, message: `Validation timed out after ${VALIDATE_TIMEOUT_MS / 1000} seconds. Check the backend route and try again.` };
     }
-    return { ok: false, message: 'Cannot reach the backend — check the deployment routing.' };
+    return { ok: false, message: formatUserError(err, { action: 'saving settings' }) };
   }
 }
 
@@ -34,6 +39,7 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
   });
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState(null);
+  const testingRef = useRef(false);
   const currentCredentials = useMemo(() => ({
     username: settings?.username || '',
     password: settings?.password || '',
@@ -48,6 +54,7 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
   }, [onClose, testing]);
 
   const handleSave = async () => {
+    if (testingRef.current) return;
     setStatus(null);
     const nextSettings = {
       username: form.username || '',
@@ -68,6 +75,7 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
       setStatus({ ok: false, message: 'Nexus is not configured for this deployment. Ask the deployer to set the backend runtime config.' });
       return;
     }
+    testingRef.current = true;
     setTesting(true);
     const result = await validateCredentials({
       nexusUrl: settings.nexusUrl,
@@ -75,6 +83,7 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
       password: form.password,
       backendUrl: form.backendUrl,
     });
+    testingRef.current = false;
     setTesting(false);
     setStatus(result);
     if (result.ok) onSave(nextSettings);
@@ -94,8 +103,9 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
           <h2 className="text-xl font-extrabold text-primary dark:text-dark-text">Settings</h2>
           <button
             onClick={onClose}
+            disabled={testing}
             aria-label="Close login"
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-dark-surface-2 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <span className="material-symbols-outlined text-slate-400 dark:text-dark-text-muted">close</span>
           </button>
@@ -111,11 +121,12 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
             <input
               id="login-username"
               type="text"
+              disabled={testing}
               value={form.username || ''}
               onChange={(e) => set('username', e.target.value)}
               placeholder="admin"
               onKeyDown={(e) => { if (e.key === 'Enter' && !testing) handleSave(); }}
-              className="px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all"
+              className="px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             />
           </div>
 
@@ -124,11 +135,12 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
             <input
               id="login-password"
               type="password"
+              disabled={testing}
               value={form.password || ''}
               onChange={(e) => set('password', e.target.value)}
               placeholder="••••••••"
               onKeyDown={(e) => { if (e.key === 'Enter' && !testing) handleSave(); }}
-              className="px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all"
+              className="px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             />
           </div>
 
@@ -146,6 +158,7 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
                 <input
                   id="dense-mode"
                   type="checkbox"
+                  disabled={testing}
                   checked={form.denseMode === true}
                   onChange={(e) => set('denseMode', e.target.checked)}
                   className="sr-only"
@@ -175,9 +188,9 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
         </p>
 
         <div className="flex gap-3 pt-2">
-          <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors">Cancel</button>
+          <button onClick={onClose} disabled={testing} className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">Cancel</button>
           <button onClick={handleSave} disabled={testing} className="flex-1 py-3 rounded-xl bg-primary dark:bg-dark-accent dark:text-dark-bg text-white text-sm font-bold hover:bg-black dark:hover:opacity-90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-            {testing ? 'Testing...' : 'Save Settings'}
+            {testing ? <span className="inline-flex items-center gap-2"><span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span> Testing...</span> : 'Save Settings'}
           </button>
         </div>
       </div>

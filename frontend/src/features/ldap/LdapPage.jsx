@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiUrl } from '../../shared/lib/backendApi';
+import { createHttpError, createNetworkError, formatUserError } from '../../shared/lib/errorMessages';
 
 const FORMAT_COLORS = {
   maven2: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
@@ -156,30 +157,45 @@ export default function LdapPage({ settings }) {
   const [permissionStatusFilter, setPermissionStatusFilter] = useState('all');
   const [permissionAdminFilter, setPermissionAdminFilter] = useState('all');
   const [copied, setCopied]   = useState(null);
+  const [copyError, setCopyError] = useState('');
+  const fetchIdRef = useRef(0);
+  const loadingKeyRef = useRef('');
 
   const fetchData = useCallback(async () => {
     if (!settings?.nexusUrl) return;
+    const fetchKey = `${settings.nexusUrl}|${settings.username || ''}`;
+    if (loadingKeyRef.current === fetchKey) return;
+    loadingKeyRef.current = fetchKey;
+    const fetchId = fetchIdRef.current + 1;
+    fetchIdRef.current = fetchId;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(apiUrl(settings, '/api/ldap/info'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nexusUrl: settings.nexusUrl,
-          username: settings.username,
-          password: settings.password,
-        }),
-      });
+      let res;
+      try {
+        res = await fetch(apiUrl(settings, '/api/ldap/info'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nexusUrl: settings.nexusUrl,
+            username: settings.username,
+            password: settings.password,
+          }),
+        });
+      } catch (_) {
+        throw createNetworkError({ action: 'loading permissions' });
+      }
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        throw new Error(e.error || `HTTP ${res.status}`);
+        throw createHttpError(res.status, e.error, { action: 'loading permissions' });
       }
-      setData(await res.json());
+      const nextData = await res.json();
+      if (fetchId === fetchIdRef.current) setData(nextData);
     } catch (e) {
-      setError(e.message);
+      if (fetchId === fetchIdRef.current) setError(formatUserError(e, { action: 'loading permissions' }));
     } finally {
-      setLoading(false);
+      if (fetchId === fetchIdRef.current) setLoading(false);
+      if (loadingKeyRef.current === fetchKey) loadingKeyRef.current = '';
     }
   }, [settings]);
 
@@ -187,8 +203,12 @@ export default function LdapPage({ settings }) {
 
   const copyToClipboard = (text, key) => {
     navigator.clipboard.writeText(text).then(() => {
+      setCopyError('');
       setCopied(key);
       setTimeout(() => setCopied(null), 1500);
+    }).catch(() => {
+      setCopied(null);
+      setCopyError('Could not copy to the clipboard. Select the value and copy it manually.');
     });
   };
 
@@ -338,6 +358,12 @@ export default function LdapPage({ settings }) {
         <div className="rounded-xl bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800/40 px-4 py-3 text-sm text-rose-700 dark:text-rose-300 font-medium flex items-center gap-2">
           <span className="material-symbols-outlined text-[18px]">error</span>
           {error}
+        </div>
+      )}
+      {copyError && (
+        <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 px-4 py-3 text-sm text-amber-800 dark:text-amber-200 font-medium flex items-center gap-2">
+          <span className="material-symbols-outlined text-[18px]">warning</span>
+          {copyError}
         </div>
       )}
 

@@ -64,6 +64,7 @@ export default function PreflightReview({
   if (items.length === 0) return null;
 
   const readyCount = items.filter((item) => ['ready', 'warning'].includes(item.reviewStatus)).length;
+  const inspectingCount = items.filter((item) => item.inspecting).length;
 
   return (
     <section className="preflight-tight flex flex-col gap-5">
@@ -84,10 +85,11 @@ export default function PreflightReview({
           </button>
           <button
             onClick={onUpload}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary dark:bg-dark-accent dark:text-dark-bg text-white text-sm font-bold hover:bg-black dark:hover:opacity-90 transition-colors"
+            disabled={readyCount === 0 || inspectingCount > 0}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary dark:bg-dark-accent dark:text-dark-bg text-white text-sm font-bold hover:bg-black dark:hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <span className="material-symbols-outlined text-[18px]">rocket_launch</span>
-            Upload {readyCount} Reviewed {readyCount === 1 ? 'File' : 'Files'}
+            <span className={`material-symbols-outlined text-[18px] ${inspectingCount > 0 ? 'animate-spin' : ''}`}>{inspectingCount > 0 ? 'progress_activity' : 'rocket_launch'}</span>
+            {inspectingCount > 0 ? `Inspecting ${inspectingCount}` : `Upload ${readyCount} Reviewed ${readyCount === 1 ? 'File' : 'Files'}`}
           </button>
         </div>
       </div>

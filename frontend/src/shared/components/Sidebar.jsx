@@ -15,7 +15,7 @@ const NAV_ITEMS = [
  * makes the backend do a server-side ping and return the result.
  */
 async function runHealthChecks(settings) {
-  const results = { backend: false, nexus: null, nexusMs: null };
+  const results = { backend: false, nexus: null, nexusMs: null, message: '' };
   try {
     const nexusUrl = settings?.nexusUrl || '';
     const params = nexusUrl ? `?nexusUrl=${encodeURIComponent(nexusUrl)}` : '';
@@ -32,7 +32,7 @@ async function runHealthChecks(settings) {
       }
     }
   } catch (_) {
-    // backend unreachable
+    results.message = 'Backend is unreachable. Check the backend container and network route.';
   }
   return results;
 }
@@ -48,16 +48,20 @@ export default function Sidebar({
   onOpenLogin,
   onLogout,
 }) {
-  const [health, setHealth]     = useState({ backend: null, nexus: null, nexusMs: null });
+  const [health, setHealth]     = useState({ backend: null, nexus: null, nexusMs: null, message: '' });
   const [checking, setChecking] = useState(false);
   const intervalRef = useRef(null);
+  const checkingRef = useRef(false);
   const nexusUrl    = settings?.nexusUrl || '';
 
   const check = async () => {
+    if (checkingRef.current) return;
+    checkingRef.current = true;
     setChecking(true);
     const r = await runHealthChecks(settings);
     setHealth(r);
     setChecking(false);
+    checkingRef.current = false;
   };
 
   useEffect(() => {
@@ -74,7 +78,7 @@ export default function Sidebar({
 
   const overallOk       = health.backend === true && (nexusUrl ? health.nexus === true : true);
   const overallChecking = health.backend === null;
-  const statusLabel     = overallChecking ? 'Checking…' : overallOk ? 'All systems operational' : 'Degraded — check settings';
+  const statusLabel     = overallChecking ? 'Checking…' : overallOk ? 'All systems operational' : health.message || 'Connection failed. Check settings, credentials, and Nexus availability.';
   const statusColor     = overallChecking
     ? 'text-slate-400 dark:text-dark-text-faint'
     : overallOk

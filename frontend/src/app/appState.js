@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { REPO_TYPES } from '../features/upload/components/RepoSelector';
+import { formatUserError } from '../shared/lib/errorMessages';
 import {
   clearLoginSettings,
   getInitialAppUi,
@@ -35,6 +36,7 @@ export function useAppShellState() {
   const [activeRepo, setActiveRepo] = useState(initialAppUi.activeRepo);
   const [theme, setTheme] = useState(getInitialTheme);
   const [runtimeConfig, setRuntimeConfig] = useState(DEFAULT_RUNTIME_CONFIG);
+  const [runtimeConfigError, setRuntimeConfigError] = useState('');
   const [settings, setSettings] = useState(() => loadLoginSettings());
   const [repoNames, setRepoNames] = useState(() => loadScopedRepoNames(loadLoginSettings()));
   const [userUiPrefs, setUserUiPrefs] = useState(() => loadScopedUserUiPrefs(loadLoginSettings()));
@@ -63,7 +65,15 @@ export function useAppShellState() {
   }, [activePage]);
 
   useEffect(() => {
-    fetchRuntimeConfig().then(setRuntimeConfig);
+    fetchRuntimeConfig()
+      .then((config) => {
+        setRuntimeConfig(config);
+        setRuntimeConfigError('');
+      })
+      .catch((err) => {
+        setRuntimeConfig(DEFAULT_RUNTIME_CONFIG);
+        setRuntimeConfigError(formatUserError(err, { action: 'loading deployment settings' }));
+      });
   }, []);
 
   useEffect(() => {
@@ -129,6 +139,7 @@ export function useAppShellState() {
     denseMode: userUiPrefs.denseMode === true,
     toggleTheme,
     runtimeConfig,
+    runtimeConfigError,
     settings,
     effectiveSettings,
     repoNames,

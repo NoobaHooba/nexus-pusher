@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiUrl } from '../../shared/lib/backendApi';
+import { createHttpError, createNetworkError, formatUserError } from '../../shared/lib/errorMessages';
 import { resolveNexusEntryUrl } from '../../shared/lib/nexusLinks';
 import { loadHistoryState, saveHistoryState } from './historyStorage';
 import { PAGE_SIZE } from './historyState';
@@ -104,6 +105,8 @@ export default function HistoryPage({ settings }) {
 
   // debounce search input
   const searchTimer = useRef(null);
+  const fetchIdRef = useRef(0);
+  const clearingRef = useRef(false);
   const [debouncedSearch, setDebouncedSearch] = useState(() => loadHistoryState(settings).search);
 
   useEffect(() => {
@@ -125,6 +128,8 @@ export default function HistoryPage({ settings }) {
   }, [search]);
 
   const fetchHistory = useCallback(async () => {
+    const fetchId = fetchIdRef.current + 1;
+    fetchIdRef.current = fetchId;
     setLoading(true);
     setError(null);
     try {
@@ -136,9 +141,15 @@ export default function HistoryPage({ settings }) {
       params.set('limit',  PAGE_SIZE);
       params.set('offset', offset);
 
-      const res  = await fetch(apiUrl(settings, `/api/history?${params}`));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      let res;
+      try {
+        res = await fetch(apiUrl(settings, `/api/history?${params}`));
+      } catch (_) {
+        throw createNetworkError({ action: 'loading history' });
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw createHttpError(res.status, data.error, { action: 'loading history' });
+      if (fetchId !== fetchIdRef.current) return;
       if ((data.total ?? 0) === 0 && offset !== 0) {
         setOffset(0);
         return;
@@ -150,9 +161,10 @@ export default function HistoryPage({ settings }) {
       setRows(data.rows  ?? []);
       setTotal(data.total ?? 0);
     } catch (err) {
-      setError(err.message);
+      if (fetchId !== fetchIdRef.current) return;
+      setError(formatUserError(err, { action: 'loading history' }));
     } finally {
-      setLoading(false);
+      if (fetchId === fetchIdRef.current) setLoading(false);
     }
   }, [debouncedSearch, filterStatus, filterType, offset, settings]);
 
@@ -170,22 +182,42 @@ export default function HistoryPage({ settings }) {
   }, [fetchHistory]);
 
   const clearAll = async () => {
+    if (clearingRef.current) return;
+    clearingRef.current = true;
     setClearing(true);
+    setError(null);
     try {
-      await fetch(apiUrl(settings, '/api/history'), {
-        method:  'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ username: settings?.username || '' }),
-      });
+      let res;
+      try {
+        res = await fetch(apiUrl(settings, '/api/history'), {
+          method:  'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ username: settings?.username || '' }),
+        });
+      } catch (_) {
+        throw createNetworkError({ action: 'clearing history' });
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw createHttpError(res.status, data.error, { action: 'clearing history' });
       setRows([]);
       setTotal(0);
       setOffset(0);
     } catch (err) {
-      setError(err.message);
+      setError(formatUserError(err, { action: 'clearing history' }));
     } finally {
+      clearingRef.current = false;
       setClearing(false);
       setShowClearConfirm(false);
     }
+  };
+
+  const refreshHistory = () => {
+    if (loading || clearing) return;
+    if (offset !== 0) {
+      setOffset(0);
+      return;
+    }
+    fetchHistory();
   };
 
   const totalPages   = Math.ceil(total / PAGE_SIZE);
@@ -211,15 +243,16 @@ export default function HistoryPage({ settings }) {
         </div>
         <div className="history-actions flex items-center gap-3">
           <button
-            onClick={() => { setOffset(0); fetchHistory(); }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-semibold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors"
+            onClick={refreshHistory}
+            disabled={loading || clearing}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-semibold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <span className="material-symbols-outlined text-[16px]">refresh</span>
-            Refresh
+            <span className={`material-symbols-outlined text-[16px] ${loading ? 'animate-spin' : ''}`}>refresh</span>
+            {loading ? 'Refreshing...' : 'Refresh'}
           </button>
           <button
             onClick={() => exportCsv(rows, settings)}
-            disabled={rows.length === 0}
+            disabled={rows.length === 0 || loading || clearing}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-semibold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-40"
           >
             <span className="material-symbols-outlined text-[16px]">download</span>
@@ -227,7 +260,7 @@ export default function HistoryPage({ settings }) {
           </button>
           <button
             onClick={() => setShowClearConfirm(true)}
-            disabled={total === 0}
+            disabled={total === 0 || loading || clearing}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-rose-200 dark:border-rose-800/40 text-sm font-semibold text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors disabled:opacity-40"
           >
             <span className="material-symbols-outlined text-[16px]">delete_sweep</span>
@@ -245,11 +278,11 @@ export default function HistoryPage({ settings }) {
               This permanently removes {settings?.username ? `all records for ${settings.username}` : 'all records'} from the server database.
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setShowClearConfirm(false)} className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2">
+              <button onClick={() => setShowClearConfirm(false)} disabled={clearing} className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 disabled:opacity-60 disabled:cursor-not-allowed">
                 Cancel
               </button>
               <button onClick={clearAll} disabled={clearing} className="flex-1 py-3 rounded-xl bg-rose-500 dark:bg-rose-600 text-white text-sm font-bold hover:bg-rose-600 dark:hover:bg-rose-500 disabled:opacity-60">
-                {clearing ? 'Clearing…' : 'Yes, clear'}
+                {clearing ? <span className="inline-flex items-center gap-2"><span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span> Clearing...</span> : 'Yes, clear'}
               </button>
             </div>
           </div>
@@ -321,7 +354,7 @@ export default function HistoryPage({ settings }) {
       {error && (
         <div className="flex items-center gap-3 px-4 py-3 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800/40 rounded-xl text-sm text-rose-700 dark:text-rose-300">
           <span className="material-symbols-outlined text-[18px]">error</span>
-          Failed to load history: {error}
+          {error}
           <button onClick={fetchHistory} className="ml-auto text-xs font-bold underline">Retry</button>
         </div>
       )}
@@ -407,16 +440,16 @@ export default function HistoryPage({ settings }) {
               </span>
               <div className="flex gap-2">
                 <button
-                  disabled={offset === 0}
                   onClick={() => setOffset(o => Math.max(0, o - PAGE_SIZE))}
-                  className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-dark-border text-xs font-semibold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 disabled:opacity-40"
+                  disabled={offset === 0 || loading}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-dark-border text-xs font-semibold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   ← Prev
                 </button>
                 <button
-                  disabled={currentPage >= totalPages}
+                  disabled={currentPage >= totalPages || loading}
                   onClick={() => setOffset(o => o + PAGE_SIZE)}
-                  className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-dark-border text-xs font-semibold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-dark-border text-xs font-semibold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Next →
                 </button>

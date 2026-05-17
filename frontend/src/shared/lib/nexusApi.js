@@ -1,4 +1,5 @@
 import { apiUrl } from './backendApi';
+import { createHttpError, createNetworkError, createTimeoutError } from './errorMessages';
 
 function stripProtocol(value) {
   return String(value || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
@@ -52,14 +53,19 @@ function buildRepositoryTarget({ nexusUrl, repo, settings }) {
 }
 
 export async function fetchRepositories({ nexusUrl, username, password, settings }) {
-  const res = await fetch(apiUrl(settings, '/api/browse/repos'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nexusUrl, username, password }),
-  });
+  let res;
+  try {
+    res = await fetch(apiUrl(settings, '/api/browse/repos'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nexusUrl, username, password }),
+    });
+  } catch (_) {
+    throw createNetworkError({ action: 'loading repositories' });
+  }
 
   const json = await res.json().catch(() => []);
-  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  if (!res.ok) throw createHttpError(res.status, json.error, { action: 'loading repositories' });
   return Array.isArray(json) ? json : [];
 }
 
@@ -76,13 +82,18 @@ export async function runPreflight({ type, nexusUrl, repo, username, password, f
     if (value !== undefined && value !== null) fd.append(key, value);
   });
 
-  const res = await fetch(apiUrl(settings, `/api/preflight/${type}`), {
-    method: 'POST',
-    body: fd,
-  });
+  let res;
+  try {
+    res = await fetch(apiUrl(settings, `/api/preflight/${type}`), {
+      method: 'POST',
+      body: fd,
+    });
+  } catch (_) {
+    throw createNetworkError({ action: 'checking the file' });
+  }
 
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  if (!res.ok) throw createHttpError(res.status, json.error, { action: 'checking the file' });
   return json;
 }
 
@@ -135,17 +146,17 @@ async function backendUpload({ type, nexusUrl, repo, username, password, file, e
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(body?.results?.[0] || body);
       } else {
-        reject(new Error(body.error || `Backend returned HTTP ${xhr.status}`));
+        reject(createHttpError(xhr.status, body.error, { action: 'uploading this file' }));
       }
     };
 
     xhr.onerror = () => {
       cleanup();
-      reject(new Error('Cannot reach the backend — is the backend container running?'));
+      reject(createNetworkError({ action: 'uploading this file' }));
     };
     xhr.ontimeout = () => {
       cleanup();
-      reject(new Error('Request timed out'));
+      reject(createTimeoutError({ action: 'uploading this file' }));
     };
     xhr.onabort = () => {
       cleanup();

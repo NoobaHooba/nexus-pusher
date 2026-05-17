@@ -1,4 +1,5 @@
 import { apiUrl } from '../shared/lib/backendApi';
+import { createHttpError, createNetworkError } from '../shared/lib/errorMessages';
 
 export const DEFAULT_RUNTIME_CONFIG = {
   nexusUrl: '',
@@ -11,11 +12,13 @@ export const DEFAULT_RUNTIME_CONFIG = {
 };
 
 export async function fetchRuntimeConfig() {
+  let res;
   try {
-    const res = await fetch(apiUrl({}, '/api/runtime-config'));
-    const data = await res.json().catch(() => ({}));
-    return { ...DEFAULT_RUNTIME_CONFIG, ...(data || {}) };
-  } catch {
-    return { ...DEFAULT_RUNTIME_CONFIG };
+    res = await fetch(apiUrl({}, '/api/runtime-config'));
+  } catch (_) {
+    throw createNetworkError({ action: 'loading deployment settings' });
   }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw createHttpError(res.status, data.error, { action: 'loading deployment settings' });
+  return { ...DEFAULT_RUNTIME_CONFIG, ...(data || {}) };
 }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiUrl } from '../../shared/lib/backendApi';
+import { createHttpError, createNetworkError, formatUserError } from '../../shared/lib/errorMessages';
 import { buildNexusBrowseUrl, rewriteNexusAssetUrls, rewriteNexusUrl } from '../../shared/lib/nexusLinks';
 import {
   applyLocalRefinements,
@@ -86,13 +87,18 @@ function fileIcon(path) {
 }
 
 async function apiFetch(settings, path, body) {
-  const res = await fetch(apiUrl(settings, path), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  let res;
+  try {
+    res = await fetch(apiUrl(settings, path), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (_) {
+    throw createNetworkError({ action: 'again' });
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw createHttpError(res.status, json.error, { action: 'again' });
   return json;
 }
 
@@ -258,10 +264,13 @@ export default function BrowserPage({ settings }) {
   const [loadingAll, setLoadingAll] = useState(false);
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [copyMessage, setCopyMessage] = useState('');
 
   const searchBoxRef = useRef(null);
   const keywordDebounceRef = useRef(null);
   const searchDebounceRef = useRef(null);
+  const searchRequestRef = useRef(0);
+  const detailRequestRef = useRef(0);
   const lastScrollYRef = useRef(0);
   const autoCollapsedFiltersRef = useRef(null);
 
@@ -309,14 +318,23 @@ export default function BrowserPage({ settings }) {
 
   useEffect(() => {
     if (!nexusUrl) return;
+    let cancelled = false;
     setReposLoading(true);
     apiFetch(settings, '/api/browse/repos', { nexusUrl, username, password })
       .then((data) => {
+        if (cancelled) return;
         setRepos(Array.isArray(data) ? data : []);
         setReposError(null);
       })
-      .catch((err) => setReposError(err.message))
-      .finally(() => setReposLoading(false));
+      .catch((err) => {
+        if (!cancelled) setReposError(formatUserError(err, { action: 'loading repositories' }));
+      })
+      .finally(() => {
+        if (!cancelled) setReposLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [nexusUrl, username, password, settings]);
 
   const serverQuery = useMemo(() => buildServerQuery(searchState), [searchState]);
@@ -342,20 +360,26 @@ export default function BrowserPage({ settings }) {
 
   const doSearch = useCallback(async (query, token = '', append = false) => {
     if (!nexusUrl) return;
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
     if (append) setLoadingMore(true);
     else setLoading(true);
     setError(null);
 
     try {
       const data = await fetchSearchPage(query, token);
+      if (requestId !== searchRequestRef.current) return;
       setResults((current) => (append ? [...current, ...data.items] : data.items));
       setContinuationToken(data.continuationToken);
     } catch (err) {
-      setError(err.message);
+      if (requestId !== searchRequestRef.current) return;
+      setError(formatUserError(err, { action: 'searching Nexus' }));
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
-      setLoadingAll(false);
+      if (requestId === searchRequestRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+        setLoadingAll(false);
+      }
     }
   }, [nexusUrl, fetchSearchPage]);
 
@@ -521,12 +545,14 @@ export default function BrowserPage({ settings }) {
   }, [updateSearchState]);
 
   const loadMore = useCallback(() => {
-    if (!continuationToken || loadingMore || loadingAll) return;
+    if (!continuationToken || loading || loadingMore || loadingAll) return;
     doSearch(serverQuery, continuationToken, true);
-  }, [continuationToken, loadingMore, loadingAll, doSearch, serverQuery]);
+  }, [continuationToken, loading, loadingMore, loadingAll, doSearch, serverQuery]);
 
   const loadAll = useCallback(async () => {
-    if (!continuationToken || loadingMore || loadingAll) return;
+    if (!continuationToken || loading || loadingMore || loadingAll) return;
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
     setLoadingMore(true);
     setLoadingAll(true);
     setError(null);
@@ -537,33 +563,53 @@ export default function BrowserPage({ settings }) {
 
       while (nextToken) {
         const page = await fetchSearchPage(serverQuery, nextToken);
+        if (requestId !== searchRequestRef.current) return;
         collected.push(...page.items);
         nextToken = page.continuationToken;
       }
 
+      if (requestId !== searchRequestRef.current) return;
       setResults((current) => [...current, ...collected]);
       setContinuationToken(null);
     } catch (err) {
-      setError(err.message);
+      if (requestId !== searchRequestRef.current) return;
+      setError(formatUserError(err, { action: 'loading all search results' }));
     } finally {
-      setLoadingMore(false);
-      setLoadingAll(false);
+      if (requestId === searchRequestRef.current) {
+        setLoadingMore(false);
+        setLoadingAll(false);
+      }
     }
-  }, [continuationToken, loadingMore, loadingAll, fetchSearchPage, serverQuery]);
+  }, [continuationToken, loading, loadingMore, loadingAll, fetchSearchPage, serverQuery]);
 
   const openDetail = useCallback(async (asset) => {
+    if (detailLoading && detail?.id === asset.id) return;
+    const requestId = detailRequestRef.current + 1;
+    detailRequestRef.current = requestId;
     setDetail(asset);
     if (!asset.id) return;
     setDetailLoading(true);
     try {
       const full = await apiFetch(settings, '/api/browse/asset', { nexusUrl, username, password, id: asset.id });
+      if (requestId !== detailRequestRef.current) return;
       setDetail(rewriteNexusAssetUrls(settings, { ...asset, ...full }));
-    } catch (_) {
-      // keep partial asset detail
+    } catch (err) {
+      if (requestId !== detailRequestRef.current) return;
+      setDetail((current) => (
+        current?.id === asset.id
+          ? { ...current, detailError: formatUserError(err, { action: 'loading asset details' }) }
+          : current
+      ));
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailRequestRef.current) setDetailLoading(false);
     }
-  }, [nexusUrl, username, password, settings]);
+  }, [detail, detailLoading, nexusUrl, username, password, settings]);
+
+  const closeDetail = useCallback(() => {
+    detailRequestRef.current += 1;
+    setDetailLoading(false);
+    setDetail(null);
+  }, []);
 
   const toggleSort = useCallback((field) => {
     updateSearchState((current) => {
@@ -608,9 +654,24 @@ export default function BrowserPage({ settings }) {
     return `${results.length} fetched · ${displayedResults.length} shown after local refinements${continuationToken ? ' · more available from Nexus' : ''}`;
   }, [results.length, displayedResults.length, localRefinementsActive, continuationToken]);
 
-  const shareSearchUrl = useCallback(() => {
-    navigator.clipboard.writeText(window.location.href);
+  const copyText = useCallback(async (text, successMessage) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyMessage(successMessage);
+      setTimeout(() => setCopyMessage(''), 1600);
+    } catch (_) {
+      setCopyMessage('Could not copy to the clipboard. Select the link and copy it manually.');
+    }
   }, []);
+
+  const shareSearchUrl = useCallback(() => {
+    copyText(window.location.href, 'Search link copied.');
+  }, [copyText]);
+
+  const copyDetailLink = useCallback((asset) => {
+    const url = buildNexusBrowseUrl(settings, asset.repository, asset.path, asset) || rewriteNexusUrl(settings, asset.downloadUrl);
+    copyText(url, 'Nexus link copied.');
+  }, [copyText, settings]);
 
   const formatOptions = useMemo(() => (
     (availableFormats.length > 0 ? availableFormats : KNOWN_FORMATS)
@@ -1100,7 +1161,7 @@ export default function BrowserPage({ settings }) {
                     <div className="flex flex-wrap items-center justify-center gap-2">
                       <button
                         onClick={loadMore}
-                        disabled={loadingMore}
+                        disabled={loading || loadingMore || loadingAll}
                         className="flex items-center gap-2 px-6 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-50"
                       >
                         {loadingMore && !loadingAll
@@ -1109,7 +1170,7 @@ export default function BrowserPage({ settings }) {
                       </button>
                       <button
                         onClick={loadAll}
-                        disabled={loadingMore}
+                        disabled={loading || loadingMore || loadingAll}
                         className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-sm font-bold text-white transition-colors hover:bg-black dark:bg-dark-accent dark:text-dark-bg dark:hover:opacity-90 disabled:opacity-50"
                       >
                         {loadingAll
@@ -1126,7 +1187,7 @@ export default function BrowserPage({ settings }) {
                   <div className="flex flex-wrap items-center justify-center gap-2">
                     <button
                       onClick={loadMore}
-                      disabled={loadingMore}
+                      disabled={loading || loadingMore || loadingAll}
                       className="flex items-center gap-2 px-6 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors disabled:opacity-50"
                     >
                       {loadingMore && !loadingAll
@@ -1135,7 +1196,7 @@ export default function BrowserPage({ settings }) {
                     </button>
                     <button
                       onClick={loadAll}
-                      disabled={loadingMore}
+                      disabled={loading || loadingMore || loadingAll}
                       className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-sm font-bold text-white transition-colors hover:bg-black dark:bg-dark-accent dark:text-dark-bg dark:hover:opacity-90 disabled:opacity-50"
                     >
                       {loadingAll
@@ -1165,7 +1226,7 @@ export default function BrowserPage({ settings }) {
                 <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
                   <button
                     onClick={loadMore}
-                    disabled={loadingMore}
+                    disabled={loading || loadingMore || loadingAll}
                     className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-on-surface-variant transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-dark-border dark:text-dark-text-muted dark:hover:bg-dark-surface-2"
                   >
                     {loadingMore && !loadingAll
@@ -1174,7 +1235,7 @@ export default function BrowserPage({ settings }) {
                   </button>
                   <button
                     onClick={loadAll}
-                    disabled={loadingMore}
+                    disabled={loading || loadingMore || loadingAll}
                     className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-black disabled:opacity-50 dark:bg-dark-accent dark:text-dark-bg dark:hover:opacity-90"
                   >
                     {loadingAll
@@ -1189,7 +1250,7 @@ export default function BrowserPage({ settings }) {
       </div>
 
       {detail && (
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setDetail(null)}>
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={closeDetail}>
           <div className="absolute inset-0 bg-black/30 dark:bg-black/60 backdrop-blur-sm" />
           <div
             className="relative bg-white dark:bg-dark-surface w-full max-w-lg h-full shadow-2xl dark:shadow-black/40 overflow-y-auto flex flex-col"
@@ -1202,7 +1263,7 @@ export default function BrowserPage({ settings }) {
                   {getAssetName(detail) || getAssetFileName(detail) || detail.id || 'Asset'}
                 </h3>
               </div>
-              <button onClick={() => setDetail(null)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface-2">
+              <button onClick={closeDetail} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface-2">
                 <span className="material-symbols-outlined text-slate-400 dark:text-dark-text-faint">close</span>
               </button>
             </div>
@@ -1213,6 +1274,12 @@ export default function BrowserPage({ settings }) {
               </div>
             ) : (
               <div className="flex flex-col gap-6 p-6">
+                {detail.detailError && (
+                  <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-200">
+                    <span className="material-symbols-outlined text-[16px]">warning</span>
+                    <span>{detail.detailError}</span>
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-3">
                   {buildNexusBrowseUrl(settings, detail.repository, detail.path, detail) && (
                     <a
@@ -1238,7 +1305,7 @@ export default function BrowserPage({ settings }) {
                   )}
                   {detail.downloadUrl && (
                     <button
-                      onClick={() => navigator.clipboard.writeText(buildNexusBrowseUrl(settings, detail.repository, detail.path, detail) || rewriteNexusUrl(settings, detail.downloadUrl))}
+                      onClick={() => copyDetailLink(detail)}
                       className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-bold text-on-surface-variant dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-surface-2 transition-colors"
                     >
                       <span className="material-symbols-outlined text-[16px]">content_copy</span>
@@ -1253,6 +1320,11 @@ export default function BrowserPage({ settings }) {
                     Share Search
                   </button>
                 </div>
+                {copyMessage && (
+                  <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                    {copyMessage}
+                  </p>
+                )}
 
                 {activeChips.length > 0 && (
                   <div className="flex flex-col gap-3">

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { UPLOADERS, runPreflight } from '../../../shared/lib/nexusApi';
+import { formatUserError } from '../../../shared/lib/errorMessages';
 import { resolveNexusEntryUrl } from '../../../shared/lib/nexusLinks';
 import {
   BASE_RETRY_DELAY,
@@ -14,7 +15,9 @@ import {
   saveUploadPrefs,
 } from '../storage';
 
-function isTransientError(message) {
+function isTransientError(error) {
+  if (error?.status >= 500 || error?.isNetworkError || error?.isTimeoutError) return true;
+  const message = typeof error === 'string' ? error : error?.message;
   if (!message) return false;
   const m = message.toLowerCase();
   return (
@@ -26,7 +29,8 @@ function isTransientError(message) {
     m.includes('fetch') ||
     m.includes('cannot reach the backend') ||
     /backend returned http 5\d\d/.test(m) ||
-    /http 5\d\d/.test(m)
+    /http 5\d\d/.test(m) ||
+    m.includes('server could not complete')
   );
 }
 
@@ -91,6 +95,7 @@ export function useUpload(settings, repoType, repoName, toast) {
   const [prefs, setPrefs] = useState(() => loadUploadPrefs(settings));
   const processingRef = useRef(false);
   const activeUploadAbortersRef = useRef(new Map());
+  const activeInspectRequestsRef = useRef(new Map());
   const skipPersistPrefsRef = useRef(true);
   const toastRef = useRef(toast);
   const previousRepoType = useRef(repoType);
@@ -158,6 +163,8 @@ export function useUpload(settings, repoType, repoName, toast) {
   const inspectStagedItem = useCallback(async (item, overrides = {}) => {
     const selectedRepo = overrides.selectedRepo ?? item.selectedRepo ?? repoName ?? '';
     const extraFields = { ...(item.extraFields || {}), ...(overrides.extraFields || {}) };
+    const requestId = (activeInspectRequestsRef.current.get(item.id) || 0) + 1;
+    activeInspectRequestsRef.current.set(item.id, requestId);
 
     setStaged((current) => current.map((entry) => (
       entry.id === item.id
@@ -180,6 +187,7 @@ export function useUpload(settings, repoType, repoName, toast) {
       });
 
       setStaged((current) => current.map((entry) => {
+        if (activeInspectRequestsRef.current.get(item.id) !== requestId) return entry;
         if (entry.id !== item.id) return entry;
         const mergedExtraFields = mergeDetectedExtra(repoType, extraFields, response.detected);
         const next = {
@@ -199,17 +207,22 @@ export function useUpload(settings, repoType, repoName, toast) {
       }));
     } catch (err) {
       setStaged((current) => current.map((entry) => {
+        if (activeInspectRequestsRef.current.get(item.id) !== requestId) return entry;
         if (entry.id !== item.id) return entry;
         const next = {
           ...entry,
           inspecting: false,
-          inspectError: err.message || 'Preflight failed',
-          warnings: err.message ? [err.message] : [],
+          inspectError: formatUserError(err, { action: 'checking the file' }),
+          warnings: [formatUserError(err, { action: 'checking the file' })],
           selectedRepo,
           extraFields,
         };
         return { ...next, reviewStatus: buildReviewStatus(next) };
       }));
+    } finally {
+      if (activeInspectRequestsRef.current.get(item.id) === requestId) {
+        activeInspectRequestsRef.current.delete(item.id);
+      }
     }
   }, [prefs, repoName, repoType, settings]);
 
@@ -238,10 +251,12 @@ export function useUpload(settings, repoType, repoName, toast) {
   }, [inspectStagedItem, prefs.lastExtraFieldsByFormat, repoName, repoType, settings?.defaultRepo]);
 
   const removeStaged = useCallback((id) => {
+    activeInspectRequestsRef.current.delete(id);
     setStaged((current) => current.filter((item) => item.id !== id));
   }, []);
 
   const cancelStaged = useCallback(() => {
+    activeInspectRequestsRef.current.clear();
     setStaged([]);
   }, []);
 
@@ -318,7 +333,7 @@ export function useUpload(settings, repoType, repoName, toast) {
       const uploader = UPLOADERS[item.repoType];
       if (!uploader) {
         processingRef.current = false;
-        const patch = { status: 'error', statusText: `Unknown repo type: ${item.repoType}` };
+        const patch = { status: 'error', statusText: `This file type is not supported by the current upload flow. Choose a supported repository type and try again.` };
         saveUploadHistory({ ...item, ...patch }, MAX_HISTORY, item.settings);
         return currentQueue.map((entry) => (entry.id === item.id ? { ...entry, ...patch } : entry));
       }
@@ -405,7 +420,7 @@ export function useUpload(settings, repoType, repoName, toast) {
           } catch (err) {
             lastError = err;
             if (isAbortError(err)) break;
-            if (!isTransientError(err.message)) break;
+            if (!isTransientError(err)) break;
             attempt++;
           }
         }
@@ -421,12 +436,13 @@ export function useUpload(settings, repoType, repoName, toast) {
             updateQueueItem(item.id, patch);
             toastRef.current?.info('Upload canceled', { title: item.name });
           } else {
-            const exhausted = attempt >= maxAttempts && isTransientError(lastError.message);
+            const friendlyError = formatUserError(lastError, { action: 'uploading this file' });
+            const exhausted = attempt >= maxAttempts && isTransientError(lastError);
             const patch = {
               status: 'error',
               statusText: exhausted
-                ? `Failed after ${maxAttempts} attempts: ${lastError.message}`
-                : lastError.message,
+                ? `Failed after ${maxAttempts} attempts. ${friendlyError}`
+                : friendlyError,
               retryCount: attempt,
             };
             updateQueueItem(item.id, patch);
@@ -500,6 +516,7 @@ export function useUpload(settings, repoType, repoName, toast) {
   useEffect(() => () => {
     activeUploadAbortersRef.current.forEach((controller) => controller.abort());
     activeUploadAbortersRef.current.clear();
+    activeInspectRequestsRef.current.clear();
   }, []);
 
   const retryItem = useCallback((id) => {
