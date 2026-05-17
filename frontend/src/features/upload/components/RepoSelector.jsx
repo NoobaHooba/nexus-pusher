@@ -1,4 +1,5 @@
 import React from 'react';
+import { INPUT_LIMITS, sanitizeRepositoryName } from '../../../shared/lib/inputValidation';
 
 export const REPO_TYPES = [
   { id: 'maven',  label: 'Maven',  icon: 'account_tree',  placeholder: 'e.g. maven-releases' },
@@ -40,6 +41,7 @@ export default function RepoSelector({
         .sort((a, b) => a.name.localeCompare(b.name))
     : [];
   const selectedRepoName = repoNames[active] || '';
+  const repoRequired = selectedRepoName.trim().length === 0;
   const favorites = preferences?.favoritesByFormat?.[active] || [];
   const recents = preferences?.recentReposByFormat?.[active] || [];
   const rankedRepos = [...filteredRepos].sort((a, b) => {
@@ -121,7 +123,9 @@ export default function RepoSelector({
                   <div className="flex items-center gap-3">
                     <select
                       value={selectedRepoName}
-                      onChange={e => onRepoNameChange(active, e.target.value)}
+                      onChange={e => onRepoNameChange(active, sanitizeRepositoryName(e.target.value))}
+                      required
+                      aria-invalid={repoRequired}
                       className="text-sm font-semibold text-primary dark:text-dark-text bg-transparent border-none outline-none w-full pr-8"
                     >
                       <option value="">Select a {type.label} repository</option>
@@ -154,10 +158,19 @@ export default function RepoSelector({
                   <input
                     type="text"
                     value={selectedRepoName}
-                    onChange={e => onRepoNameChange(active, e.target.value)}
+                    onChange={e => onRepoNameChange(active, sanitizeRepositoryName(e.target.value))}
+                    required
+                    aria-invalid={repoRequired}
+                    maxLength={INPUT_LIMITS.repository}
+                    pattern="[A-Za-z0-9._/-]+"
                     placeholder={type.placeholder}
                     className="text-sm font-semibold text-primary dark:text-dark-text bg-transparent border-none outline-none placeholder:text-slate-300 dark:placeholder:text-dark-text-faint w-full"
                   />
+                  {repoRequired && (
+                    <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-300 mt-1">
+                      Repository name is required before files can be reviewed or uploaded.
+                    </p>
+                  )}
                   <p className="text-[11px] text-slate-400 dark:text-dark-text-faint mt-1">
                     {reposLoading
                       ? 'Loading repositories from Nexus…'

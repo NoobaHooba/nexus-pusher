@@ -1,3 +1,5 @@
+import { INPUT_LIMITS, sanitizeNumberText, sanitizeText } from '../../shared/lib/inputValidation';
+
 export const MAX_SEARCH_HISTORY = 6;
 export const MAX_SUGGESTIONS = 8;
 export const DEFAULT_SORT = { field: 'lastModified', direction: 'desc' };
@@ -68,11 +70,11 @@ const LABELS = {
 };
 
 function normalizeText(value) {
-  return String(value || '').trim();
+  return sanitizeText(value, INPUT_LIMITS.search).trim();
 }
 
 function normalizeNumberText(value) {
-  const text = normalizeText(value);
+  const text = sanitizeNumberText(value);
   if (!text) return '';
   const number = Number(text);
   return Number.isFinite(number) && number >= 0 ? String(number) : '';

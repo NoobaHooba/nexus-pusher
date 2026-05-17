@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { UPLOADERS, runPreflight } from '../../../shared/lib/nexusApi';
 import { formatUserError } from '../../../shared/lib/errorMessages';
+import { sanitizeRepositoryName } from '../../../shared/lib/inputValidation';
 import { resolveNexusEntryUrl } from '../../../shared/lib/nexusLinks';
 import {
   BASE_RETRY_DELAY,
@@ -161,7 +162,7 @@ export function useUpload(settings, repoType, repoName, toast) {
   }, []);
 
   const inspectStagedItem = useCallback(async (item, overrides = {}) => {
-    const selectedRepo = overrides.selectedRepo ?? item.selectedRepo ?? repoName ?? '';
+    const selectedRepo = sanitizeRepositoryName(overrides.selectedRepo ?? item.selectedRepo ?? repoName ?? '');
     const extraFields = { ...(item.extraFields || {}), ...(overrides.extraFields || {}) };
     const requestId = (activeInspectRequestsRef.current.get(item.id) || 0) + 1;
     activeInspectRequestsRef.current.set(item.id, requestId);

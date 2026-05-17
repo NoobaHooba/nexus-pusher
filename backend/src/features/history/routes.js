@@ -1,18 +1,26 @@
 const express = require('express');
 const { query, clearHistory } = require('../../shared/persistence/db');
+const { getRequestUserContext, hasUserContext } = require('../../shared/auth/userContext');
 
 const router = express.Router();
 
 /**
  * GET /api/history
- * Query params: username, repo, type, status, search, limit, offset
+ * Query params: nexusUrl, username, repo, type, status, search, limit, offset
  *
  * Returns:
  *   { rows: Upload[], total: number }
  */
 router.get('/', (req, res) => {
   try {
-    const result = query(req.query || {});
+    const userContext = getRequestUserContext(req);
+    if (!hasUserContext(userContext)) {
+      return res.status(400).json({ error: 'History requests require a signed-in Nexus user and Nexus URL.' });
+    }
+    const result = query({
+      ...(req.query || {}),
+      userId: userContext.userId,
+    });
     res.json(result);
   } catch (err) {
     console.error('[history] query error:', err);
@@ -22,12 +30,15 @@ router.get('/', (req, res) => {
 
 /**
  * DELETE /api/history
- * Body: { username } — pass '*' to wipe everything (admin use)
+ * Body: { nexusUrl, username }
  */
 router.delete('/', (req, res) => {
   try {
-    const { username } = req.body || {};
-    const deleted = clearHistory(username);
+    const userContext = getRequestUserContext(req);
+    if (!hasUserContext(userContext)) {
+      return res.status(400).json({ error: 'History deletion requires a signed-in Nexus user and Nexus URL.' });
+    }
+    const deleted = clearHistory(userContext.userId);
     res.json({ deleted });
   } catch (err) {
     console.error('[history] clear error:', err);

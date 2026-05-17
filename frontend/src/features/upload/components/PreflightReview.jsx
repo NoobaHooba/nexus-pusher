@@ -1,4 +1,5 @@
 import React from 'react';
+import { sanitizeRepositoryName } from '../../../shared/lib/inputValidation';
 import ExtraFieldsForm, { FIELD_MAP } from './ExtraFieldsForm';
 
 function formatSize(bytes) {
@@ -180,7 +181,9 @@ export default function PreflightReview({
                 <div className="flex items-center gap-3 flex-wrap">
                   <select
                     value={selectedRepo}
-                    onChange={(e) => onRepoChange(item.id, e.target.value)}
+                    onChange={(e) => onRepoChange(item.id, sanitizeRepositoryName(e.target.value))}
+                    required
+                    aria-invalid={!selectedRepo}
                     className="min-w-[260px] px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-semibold text-primary dark:text-dark-text"
                   >
                     <option value="">Select a repository</option>

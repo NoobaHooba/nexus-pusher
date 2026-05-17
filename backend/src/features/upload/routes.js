@@ -3,6 +3,7 @@ const multer  = require('multer');
 const fs      = require('fs');
 const router  = express.Router();
 const { formatByteSize, getConfig } = require('../../app/config');
+const { getRequestUserContext } = require('../../shared/auth/userContext');
 const { record } = require('../../shared/persistence/db');
 const { buildArtifactPath, normalizeArtifactPath } = require('../../shared/artifacts/paths');
 const { detectArtifact } = require('../../shared/artifacts/metadata');
@@ -88,6 +89,7 @@ router.post('/:type', upload.array('files'), async (req, res) => {
   }
 
   const { nexusUrl, repo, username, password, ...extra } = req.body;
+  const userContext = getRequestUserContext(req);
 
   if (!nexusUrl) {
     return res.status(400).json({ error: 'Nexus URL is not configured — open Settings and enter your Nexus URL.' });
@@ -153,6 +155,7 @@ router.post('/:type', upload.array('files'), async (req, res) => {
     } finally {
       // Persist to audit log regardless of success/failure
       record({
+        user_id:   userContext.userId,
         username:  username  || '',
         nexus_url: nexusUrl  || '',
         repo:      repo      || '',

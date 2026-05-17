@@ -1,4 +1,5 @@
 import React from 'react';
+import { INPUT_LIMITS, sanitizePackageField, sanitizePath } from '../../../shared/lib/inputValidation';
 
 export const FIELD_MAP = {
   docker: [
@@ -20,6 +21,21 @@ export const FIELD_MAP = {
   ],
 };
 
+const OPTIONAL_KEYS = new Set(['classifier']);
+
+function getFieldLimit(key) {
+  if (key === 'directory') return INPUT_LIMITS.directory;
+  if (key === 'extension') return INPUT_LIMITS.extension;
+  if (key === 'version' || key === 'imageTag') return INPUT_LIMITS.version;
+  if (key === 'classifier') return INPUT_LIMITS.classifier;
+  return INPUT_LIMITS.packageField;
+}
+
+function sanitizeExtraField(key, value) {
+  if (key === 'directory') return sanitizePath(value);
+  return sanitizePackageField(value, getFieldLimit(key));
+}
+
 export default function ExtraFieldsForm({
   repoType,
   values,
@@ -31,7 +47,7 @@ export default function ExtraFieldsForm({
   const fields = fieldsOverride || FIELD_MAP[repoType];
   if (!fields) return null;
 
-  const handle = (key, val) => onChange({ ...values, [key]: val });
+  const handle = (key, val) => onChange({ ...values, [key]: sanitizeExtraField(key, val) });
 
   return (
     <div className={`bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border ${compact ? 'p-4' : 'p-6'} flex flex-col gap-4`}>
@@ -39,18 +55,28 @@ export default function ExtraFieldsForm({
         {title || `${repoType.toUpperCase()} Options`}
       </h5>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {fields.map(({ key, label, placeholder }) => (
+        {fields.map(({ key, label, placeholder }) => {
+          const required = !OPTIONAL_KEYS.has(key);
+          const emptyRequired = required && !String(values[key] || '').trim();
+          return (
           <div key={key} className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-on-surface-variant dark:text-dark-text-muted">{label}</label>
             <input
               type="text"
+              required={required}
+              aria-invalid={emptyRequired}
+              maxLength={getFieldLimit(key)}
               value={values[key] || ''}
               onChange={(e) => handle(key, e.target.value)}
               placeholder={placeholder}
               className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface-2 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 transition-all"
             />
+            {emptyRequired && (
+              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-300">Required for this package.</span>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

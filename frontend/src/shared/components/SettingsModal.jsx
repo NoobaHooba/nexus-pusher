@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { apiUrl, getBackendBaseUrl } from '../lib/backendApi';
 import { createHttpError, formatUserError } from '../lib/errorMessages';
+import { INPUT_LIMITS, sanitizeControlText, sanitizeText, sanitizeTrimmed } from '../lib/inputValidation';
 
 const VALIDATE_TIMEOUT_MS = 15_000;
 
@@ -45,7 +46,14 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
     password: settings?.password || '',
   }), [settings?.username, settings?.password]);
 
-  const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const set = (key, value) => {
+    const nextValue = key === 'username'
+      ? sanitizeText(value, INPUT_LIMITS.username)
+      : key === 'password'
+        ? sanitizeControlText(value, INPUT_LIMITS.password)
+        : value;
+    setForm((current) => ({ ...current, [key]: nextValue }));
+  };
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape' && !testing) onClose(); };
@@ -57,10 +65,14 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
     if (testingRef.current) return;
     setStatus(null);
     const nextSettings = {
-      username: form.username || '',
-      password: form.password || '',
+      username: sanitizeTrimmed(form.username, INPUT_LIMITS.username),
+      password: sanitizeControlText(form.password, INPUT_LIMITS.password),
       denseMode: form.denseMode === true,
     };
+    if (!nextSettings.username || !nextSettings.password) {
+      setStatus({ ok: false, message: 'Username and password are required. Enter both values, then save settings again.' });
+      return;
+    }
     const credentialsChanged = (
       nextSettings.username !== currentCredentials.username ||
       nextSettings.password !== currentCredentials.password
@@ -122,6 +134,9 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
               id="login-username"
               type="text"
               disabled={testing}
+              required
+              maxLength={INPUT_LIMITS.username}
+              autoComplete="username"
               value={form.username || ''}
               onChange={(e) => set('username', e.target.value)}
               placeholder="admin"
@@ -136,6 +151,9 @@ export default function SettingsModal({ settings, denseMode, onSave, onClose }) 
               id="login-password"
               type="password"
               disabled={testing}
+              required
+              maxLength={INPUT_LIMITS.password}
+              autoComplete="current-password"
               value={form.password || ''}
               onChange={(e) => set('password', e.target.value)}
               placeholder="••••••••"

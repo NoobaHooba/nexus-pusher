@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiUrl } from '../../shared/lib/backendApi';
 import { createHttpError, createNetworkError, formatUserError } from '../../shared/lib/errorMessages';
+import { INPUT_LIMITS, sanitizeText } from '../../shared/lib/inputValidation';
 
 const FORMAT_COLORS = {
   maven2: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
@@ -472,7 +473,8 @@ export default function LdapPage({ settings }) {
                   <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint text-[18px]">search</span>
                   <input
                     value={repoSearch}
-                    onChange={e => setRepoSearch(e.target.value)}
+                    onChange={e => setRepoSearch(sanitizeText(e.target.value, INPUT_LIMITS.search))}
+                    maxLength={INPUT_LIMITS.search}
                     placeholder="Search repositories…"
                     className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 bg-white dark:bg-dark-surface placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
                   />
@@ -632,7 +634,8 @@ export default function LdapPage({ settings }) {
                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint text-[18px]">search</span>
                 <input
                   value={matrixSearch}
-                  onChange={e => setMatrixSearch(e.target.value)}
+                  onChange={e => setMatrixSearch(sanitizeText(e.target.value, INPUT_LIMITS.search))}
+                  maxLength={INPUT_LIMITS.search}
                   placeholder="Filter repositories in matrix…"
                   className="w-full max-w-sm pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 bg-white dark:bg-dark-surface placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
                 />
@@ -733,7 +736,8 @@ export default function LdapPage({ settings }) {
                   <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint text-[18px]">search</span>
                   <input
                     value={permissionSearch}
-                    onChange={e => setPermissionSearch(e.target.value)}
+                    onChange={e => setPermissionSearch(sanitizeText(e.target.value, INPUT_LIMITS.search))}
+                    maxLength={INPUT_LIMITS.search}
                     placeholder="Search users, roles, privileges, repositories…"
                     className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 bg-white dark:bg-dark-surface placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
                   />
@@ -919,7 +923,8 @@ export default function LdapPage({ settings }) {
                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint text-[18px]">search</span>
                 <input
                   value={userSearch}
-                  onChange={e => setUserSearch(e.target.value)}
+                  onChange={e => setUserSearch(sanitizeText(e.target.value, INPUT_LIMITS.search))}
+                  maxLength={INPUT_LIMITS.search}
                   placeholder="Search users by name, ID, or email…"
                   className="w-full max-w-sm pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 bg-white dark:bg-dark-surface placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
                 />

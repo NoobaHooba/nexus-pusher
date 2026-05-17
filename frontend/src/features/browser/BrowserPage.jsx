@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiUrl } from '../../shared/lib/backendApi';
 import { createHttpError, createNetworkError, formatUserError } from '../../shared/lib/errorMessages';
+import { INPUT_LIMITS, sanitizeNumberText, sanitizePackageField, sanitizePath, sanitizeRepositoryName, sanitizeText, sanitizeTrimmed } from '../../shared/lib/inputValidation';
 import { buildNexusBrowseUrl, rewriteNexusAssetUrls, rewriteNexusUrl } from '../../shared/lib/nexusLinks';
 import {
   applyLocalRefinements,
@@ -121,15 +122,37 @@ function loadBrowserSession(settings) {
   };
 }
 
-function FilterField({ label, value, onChange, placeholder, type = 'text', helperText, className = '', min, max }) {
+function getSearchFieldLimit(key) {
+  if (key === 'repository') return INPUT_LIMITS.repository;
+  if (key === 'path') return INPUT_LIMITS.path;
+  if (key === 'extension') return INPUT_LIMITS.extension;
+  if (key === 'classifier') return INPUT_LIMITS.classifier;
+  if (key === 'version' || key === 'mavenBaseVersion') return INPUT_LIMITS.version;
+  if (key === 'sizeMin' || key === 'sizeMax') return INPUT_LIMITS.number;
+  return INPUT_LIMITS.packageField;
+}
+
+function sanitizeSearchField(key, value) {
+  if (key === 'sizeMin' || key === 'sizeMax') return sanitizeNumberText(value);
+  if (key === 'repository') return sanitizeRepositoryName(value);
+  if (key === 'path') return sanitizePath(value);
+  if (key === 'modifiedFrom' || key === 'modifiedTo') return sanitizeText(value, 10);
+  return sanitizePackageField(value, getSearchFieldLimit(key));
+}
+
+function FilterField({ label, value, onChange, placeholder, type = 'text', helperText, className = '', min, max, maxLength }) {
+  const inputType = type === 'number' ? 'text' : type;
   return (
     <label className={`flex flex-col gap-1.5 ${className}`}>
       <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400 dark:text-dark-text-faint">{label}</span>
       <input
-        type={type}
+        type={inputType}
         value={value}
         min={min}
         max={max}
+        maxLength={maxLength}
+        inputMode={type === 'number' ? 'numeric' : undefined}
+        pattern={type === 'number' ? '[0-9]*' : undefined}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className="w-full rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-2.5 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent/40"
@@ -477,7 +500,7 @@ export default function BrowserPage({ settings }) {
   }, [results, searchState, localRefinements, effectiveSort]);
 
   const commitSearch = useCallback((value) => {
-    const nextValue = String(value || '').trim();
+    const nextValue = sanitizeTrimmed(value, INPUT_LIMITS.search);
     if (keywordDebounceRef.current) clearTimeout(keywordDebounceRef.current);
     setKeywordInput(nextValue);
     updateSearchState((current) => ({ ...current, keyword: nextValue }));
@@ -500,7 +523,7 @@ export default function BrowserPage({ settings }) {
   }, [updateSearchState]);
 
   const updateField = useCallback((key, value) => {
-    updateSearchState((current) => ({ ...current, [key]: value }));
+    updateSearchState((current) => ({ ...current, [key]: sanitizeSearchField(key, value) }));
   }, [updateSearchState]);
 
   const selectedRepositoryMeta = useMemo(
@@ -515,11 +538,12 @@ export default function BrowserPage({ settings }) {
     : 'Search Nexus by keyword, package, version...';
 
   const updateRepository = useCallback((repository) => {
-    const selected = repos.find((repo) => repo?.name === repository);
+    const nextRepository = sanitizeRepositoryName(repository);
+    const selected = repos.find((repo) => repo?.name === nextRepository);
     updateSearchState((current) => ({
       ...current,
-      repository,
-      format: selected?.format || (repository ? current.format : current.format),
+      repository: nextRepository,
+      format: selected?.format || (nextRepository ? current.format : current.format),
       group: selected?.format && selected.format !== 'maven2' ? '' : current.group,
     }));
   }, [repos, updateSearchState]);
@@ -708,7 +732,8 @@ export default function BrowserPage({ settings }) {
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint text-[18px]">search</span>
               <input
                 value={repoFilter}
-                onChange={(e) => setRepoFilter(e.target.value)}
+                onChange={(e) => setRepoFilter(sanitizeText(e.target.value, INPUT_LIMITS.repository))}
+                maxLength={INPUT_LIMITS.repository}
                 placeholder="Filter repos"
                 className="w-full rounded-xl border border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface-2 py-2 pl-9 pr-3 text-sm font-medium text-primary dark:text-dark-text placeholder:text-slate-300 dark:placeholder:text-dark-text-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent/30"
               />
@@ -784,7 +809,7 @@ export default function BrowserPage({ settings }) {
                     <input
                       value={keywordInput}
                       onChange={(e) => {
-                        setKeywordInput(e.target.value);
+                        setKeywordInput(sanitizeText(e.target.value, INPUT_LIMITS.search));
                         setShowSuggestions(true);
                         setHighlightedSuggestion(-1);
                       }}
@@ -810,6 +835,7 @@ export default function BrowserPage({ settings }) {
                         }
                       }}
                       placeholder={searchPlaceholder}
+                      maxLength={INPUT_LIMITS.search}
                       className="w-full rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface pl-10 pr-10 py-3 text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
                     />
                     {keywordInput && (
@@ -945,11 +971,11 @@ export default function BrowserPage({ settings }) {
                           className="min-w-[180px] flex-1"
                           options={formatOptions}
                         />
-                        <FilterField className="min-w-[180px] flex-1" label="Package Name" value={searchState.name} onChange={(value) => updateField('name', value)} placeholder="org.osgi.core" />
+                        <FilterField className="min-w-[180px] flex-1" label="Package Name" value={searchState.name} onChange={(value) => updateField('name', value)} placeholder="org.osgi.core" maxLength={getSearchFieldLimit('name')} />
                         {showGroupFilter && (
-                          <FilterField className="min-w-[180px] flex-1" label="Group" value={searchState.group} onChange={(value) => updateField('group', value)} placeholder="org.osgi" />
+                          <FilterField className="min-w-[180px] flex-1" label="Group" value={searchState.group} onChange={(value) => updateField('group', value)} placeholder="org.osgi" maxLength={getSearchFieldLimit('group')} />
                         )}
-                        <FilterField className="min-w-[160px] flex-1" label="Version" value={searchState.version} onChange={(value) => updateField('version', value)} placeholder="4.3.1" />
+                        <FilterField className="min-w-[160px] flex-1" label="Version" value={searchState.version} onChange={(value) => updateField('version', value)} placeholder="4.3.1" maxLength={getSearchFieldLimit('version')} />
                         {(searchState.format === 'maven2'
                           || searchState.mavenGroupId
                           || searchState.mavenArtifactId
@@ -957,11 +983,11 @@ export default function BrowserPage({ settings }) {
                           || searchState.classifier
                           || searchState.extension) && (
                           <>
-                            <FilterField className="min-w-[180px] flex-1" label="Group ID" value={searchState.mavenGroupId} onChange={(value) => updateField('mavenGroupId', value)} placeholder="org.osgi" />
-                            <FilterField className="min-w-[180px] flex-1" label="Artifact ID" value={searchState.mavenArtifactId} onChange={(value) => updateField('mavenArtifactId', value)} placeholder="org.osgi.core" />
-                            <FilterField className="min-w-[180px] flex-1" label="Base Version" value={searchState.mavenBaseVersion} onChange={(value) => updateField('mavenBaseVersion', value)} placeholder="1.2.3-SNAPSHOT" />
-                            <FilterField className="min-w-[160px] flex-1" label="Classifier" value={searchState.classifier} onChange={(value) => updateField('classifier', value)} placeholder="sources" />
-                            <FilterField className="min-w-[140px] flex-1" label="Extension" value={searchState.extension} onChange={(value) => updateField('extension', value)} placeholder="jar" />
+                            <FilterField className="min-w-[180px] flex-1" label="Group ID" value={searchState.mavenGroupId} onChange={(value) => updateField('mavenGroupId', value)} placeholder="org.osgi" maxLength={getSearchFieldLimit('mavenGroupId')} />
+                            <FilterField className="min-w-[180px] flex-1" label="Artifact ID" value={searchState.mavenArtifactId} onChange={(value) => updateField('mavenArtifactId', value)} placeholder="org.osgi.core" maxLength={getSearchFieldLimit('mavenArtifactId')} />
+                            <FilterField className="min-w-[180px] flex-1" label="Base Version" value={searchState.mavenBaseVersion} onChange={(value) => updateField('mavenBaseVersion', value)} placeholder="1.2.3-SNAPSHOT" maxLength={getSearchFieldLimit('mavenBaseVersion')} />
+                            <FilterField className="min-w-[160px] flex-1" label="Classifier" value={searchState.classifier} onChange={(value) => updateField('classifier', value)} placeholder="sources" maxLength={getSearchFieldLimit('classifier')} />
+                            <FilterField className="min-w-[140px] flex-1" label="Extension" value={searchState.extension} onChange={(value) => updateField('extension', value)} placeholder="jar" maxLength={getSearchFieldLimit('extension')} />
                           </>
                         )}
                       </div>
@@ -977,10 +1003,10 @@ export default function BrowserPage({ settings }) {
                       <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-bold text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">Local</span>
                     </div>
                     <div className="flex flex-wrap gap-3 items-end">
-                      <FilterField className="min-w-[180px] flex-1" label="Path Contains" value={searchState.path} onChange={(value) => updateField('path', value)} placeholder="org/osgi/" />
-                      <FilterField className="min-w-[180px] flex-1" label="Uploaded By" value={searchState.uploadedBy} onChange={(value) => updateField('uploadedBy', value)} placeholder="admin" />
-                      <FilterField className="min-w-[150px] flex-1" label="Size Min" value={searchState.sizeMin} onChange={(value) => updateField('sizeMin', value)} placeholder="0" type="number" min="0" />
-                      <FilterField className="min-w-[150px] flex-1" label="Size Max" value={searchState.sizeMax} onChange={(value) => updateField('sizeMax', value)} placeholder="1048576" type="number" min="0" />
+                      <FilterField className="min-w-[180px] flex-1" label="Path Contains" value={searchState.path} onChange={(value) => updateField('path', value)} placeholder="org/osgi/" maxLength={getSearchFieldLimit('path')} />
+                      <FilterField className="min-w-[180px] flex-1" label="Uploaded By" value={searchState.uploadedBy} onChange={(value) => updateField('uploadedBy', value)} placeholder="admin" maxLength={getSearchFieldLimit('uploadedBy')} />
+                      <FilterField className="min-w-[150px] flex-1" label="Size Min" value={searchState.sizeMin} onChange={(value) => updateField('sizeMin', value)} placeholder="0" type="number" min="0" maxLength={getSearchFieldLimit('sizeMin')} />
+                      <FilterField className="min-w-[150px] flex-1" label="Size Max" value={searchState.sizeMax} onChange={(value) => updateField('sizeMax', value)} placeholder="1048576" type="number" min="0" maxLength={getSearchFieldLimit('sizeMax')} />
                       <FilterField className="min-w-[170px] flex-1" label="Modified From" value={searchState.modifiedFrom} onChange={(value) => updateField('modifiedFrom', value)} type="date" />
                       <FilterField className="min-w-[170px] flex-1" label="Modified To" value={searchState.modifiedTo} onChange={(value) => updateField('modifiedTo', value)} type="date" />
                     </div>

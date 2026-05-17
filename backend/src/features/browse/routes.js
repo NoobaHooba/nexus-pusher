@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { getRequestUserContext } = require('../../shared/auth/userContext');
 const { fetchRepositories, makeHeaders, normalizeBaseUrl, searchAssets } = require('../../shared/nexus/client');
 const { enrichAssetsWithUploader, findLatestUploadForAsset } = require('../../shared/persistence/db');
 
@@ -64,6 +65,7 @@ router.post('/repos', async (req, res) => {
  */
 router.post('/search', async (req, res) => {
   const { nexusUrl, username, password, continuationToken, query } = req.body || {};
+  const userContext = getRequestUserContext(req);
   if (!nexusUrl) return res.status(400).json({ error: 'nexusUrl is required' });
 
   try {
@@ -75,7 +77,7 @@ router.post('/search', async (req, res) => {
     });
     return res.json({
       continuationToken: data?.continuationToken || null,
-      items: enrichAssetsWithUploader(Array.isArray(data?.items) ? data.items : []),
+      items: enrichAssetsWithUploader(Array.isArray(data?.items) ? data.items : [], userContext.userId),
     });
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message });
@@ -89,6 +91,7 @@ router.post('/search', async (req, res) => {
  */
 router.post('/asset', async (req, res) => {
   const { nexusUrl, username, password, id } = req.body || {};
+  const userContext = getRequestUserContext(req);
   if (!nexusUrl || !id) return res.status(400).json({ error: 'nexusUrl and id are required' });
   const base = normalizeBaseUrl(nexusUrl);
   const headers = makeHeaders(username, password);
@@ -97,6 +100,7 @@ router.post('/asset', async (req, res) => {
     if (!resFetch.ok) throw Object.assign(new Error(`HTTP ${resFetch.status}`), { status: resFetch.status });
     const data = await resFetch.json();
     const uploadInfo = findLatestUploadForAsset({
+      userId: userContext.userId,
       repo: data?.repository,
       path: data?.path,
       filename: data?.path?.split('/').pop() || data?.name,

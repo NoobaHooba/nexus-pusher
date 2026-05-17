@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiUrl } from '../../shared/lib/backendApi';
 import { createHttpError, createNetworkError, formatUserError } from '../../shared/lib/errorMessages';
+import { INPUT_LIMITS, sanitizeText } from '../../shared/lib/inputValidation';
 import { resolveNexusEntryUrl } from '../../shared/lib/nexusLinks';
 import { loadHistoryState, saveHistoryState } from './historyStorage';
 import { PAGE_SIZE } from './historyState';
@@ -138,6 +139,7 @@ export default function HistoryPage({ settings }) {
       if (filterStatus !== 'all')  params.set('status', filterStatus);
       if (filterType   !== 'all')  params.set('type',   filterType);
       params.set('username', settings?.username || '');
+      params.set('nexusUrl', settings?.nexusUrl || '');
       params.set('limit',  PAGE_SIZE);
       params.set('offset', offset);
 
@@ -192,7 +194,7 @@ export default function HistoryPage({ settings }) {
         res = await fetch(apiUrl(settings, '/api/history'), {
           method:  'DELETE',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ username: settings?.username || '' }),
+          body:    JSON.stringify({ username: settings?.username || '', nexusUrl: settings?.nexusUrl || '' }),
         });
       } catch (_) {
         throw createNetworkError({ action: 'clearing history' });
@@ -313,7 +315,8 @@ export default function HistoryPage({ settings }) {
           <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint text-[18px]">search</span>
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => setSearch(sanitizeText(e.target.value, INPUT_LIMITS.search))}
+            maxLength={INPUT_LIMITS.search}
             placeholder="Search by filename…"
             className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 bg-white dark:bg-dark-surface placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
           />

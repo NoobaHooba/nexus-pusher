@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { REPO_TYPES } from '../features/upload/components/RepoSelector';
 import { formatUserError } from '../shared/lib/errorMessages';
+import { sanitizeRepositoryName } from '../shared/lib/inputValidation';
 import {
   clearLoginSettings,
   getInitialAppUi,
@@ -124,7 +125,7 @@ export function useAppShellState() {
 
   const updateRepoName = (type, name) => {
     setRepoNames((current) => {
-      const next = { ...current, [type]: name };
+      const next = { ...current, [type]: sanitizeRepositoryName(name) };
       saveScopedRepoNames(next, settings);
       return next;
     });
