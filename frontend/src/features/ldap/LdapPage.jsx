@@ -142,6 +142,36 @@ function RolePills({ roleIds, limit = 8 }) {
   );
 }
 
+function ActionPills({ actions, limit = 8 }) {
+  if (!actions?.length) return <span className="text-xs text-slate-300 dark:text-dark-text-faint">None</span>;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {actions.slice(0, limit).map((action) => (
+        <span key={action} className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+          ['*', 'delete'].includes(String(action).toLowerCase())
+            ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+            : ['add', 'edit'].includes(String(action).toLowerCase())
+              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+        }`}>
+          {action}
+        </span>
+      ))}
+      {actions.length > limit && (
+        <span className="text-[10px] text-slate-400 dark:text-dark-text-faint">+{actions.length - limit}</span>
+      )}
+    </div>
+  );
+}
+
+function hasWriteAction(actions = []) {
+  return (actions || []).some((action) => ['*', 'add', 'edit', 'delete'].includes(String(action).toLowerCase()));
+}
+
+function hasDeleteAction(actions = []) {
+  return (actions || []).some((action) => ['*', 'delete'].includes(String(action).toLowerCase()));
+}
+
 export default function LdapPage({ settings }) {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
@@ -151,8 +181,9 @@ export default function LdapPage({ settings }) {
   const [repoFilter, setRepoFilter]   = useState('all');
   const [userSearch, setUserSearch]   = useState('');
   const [matrixSearch, setMatrixSearch] = useState('');
-  const [permissionView, setPermissionView] = useState('roles');
+  const [permissionView, setPermissionView] = useState('repositories');
   const [permissionSearch, setPermissionSearch] = useState('');
+  const [permissionRiskFilter, setPermissionRiskFilter] = useState('all');
   const [permissionTypeFilter, setPermissionTypeFilter] = useState('all');
   const [permissionSourceFilter, setPermissionSourceFilter] = useState('all');
   const [permissionStatusFilter, setPermissionStatusFilter] = useState('all');
@@ -161,6 +192,7 @@ export default function LdapPage({ settings }) {
   const [copyError, setCopyError] = useState('');
   const fetchIdRef = useRef(0);
   const loadingKeyRef = useRef('');
+  const autoSelectedAdminTabRef = useRef(false);
 
   const fetchData = useCallback(async () => {
     if (!settings?.nexusUrl) return;
@@ -202,6 +234,12 @@ export default function LdapPage({ settings }) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  useEffect(() => {
+    if (!data?.permissionAudit || autoSelectedAdminTabRef.current) return;
+    autoSelectedAdminTabRef.current = true;
+    setTab('permissions');
+  }, [data?.permissionAudit]);
+
   const copyToClipboard = (text, key) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopyError('');
@@ -223,7 +261,28 @@ export default function LdapPage({ settings }) {
   ];
 
   const permissionAudit = data?.permissionAudit || null;
+  const repositoryAccessAudit = data?.repositoryAccessAudit || null;
   const permissionUserMap = useMemo(() => new Map((permissionAudit?.users || []).map((user) => [user.userId, user])), [permissionAudit]);
+  const filteredPermissionRepositories = useMemo(() => (
+    (repositoryAccessAudit?.repositories || []).filter((repo) => {
+      const matchRisk = permissionRiskFilter === 'all'
+        || (permissionRiskFilter === 'wildcard' && repo.risk?.wildcard)
+        || (permissionRiskFilter === 'write' && repo.risk?.writeCapableUsers > 0)
+        || (permissionRiskFilter === 'delete' && repo.risk?.deleteCapableUsers > 0)
+        || (permissionRiskFilter === 'inactive' && repo.risk?.inactiveUsers > 0);
+      const matchAdmin = permissionAdminFilter === 'all'
+        || (permissionAdminFilter === 'admin' ? repo.risk?.wildcard : !repo.risk?.wildcard);
+      return matchRisk && matchAdmin && matchesSearch([
+        repo.name,
+        repo.format,
+        repo.type,
+        ...(repo.actions || []),
+        ...(repo.roles || []),
+        ...(repo.privileges || []),
+        ...(repo.users || []).flatMap((user) => [user.userId, user.displayName, user.email, user.status, ...(user.actions || [])]),
+      ], permissionSearch);
+    })
+  ), [permissionAdminFilter, permissionRiskFilter, permissionSearch, repositoryAccessAudit]);
   const permissionTypes = useMemo(() => dedupeStrings((permissionAudit?.privileges || []).map((privilege) => privilege.type || 'application')), [permissionAudit]);
   const permissionSources = useMemo(() => dedupeStrings((permissionAudit?.users || []).map((user) => user.source || 'default')), [permissionAudit]);
   const permissionStatuses = useMemo(() => dedupeStrings((permissionAudit?.users || []).map((user) => user.status || 'unknown')), [permissionAudit]);
@@ -274,6 +333,29 @@ export default function LdapPage({ settings }) {
 
   const exportPermissions = () => {
     const date = new Date().toISOString().slice(0, 10);
+    if (permissionView === 'repositories') {
+      exportCsv(
+        `nexus-repository-access-${date}.csv`,
+        ['Repository', 'Format', 'Type', 'User ID', 'Name', 'Email', 'Status', 'Admin', 'Actions', 'Roles', 'Privileges', 'Access Paths'],
+        filteredPermissionRepositories.flatMap((repo) => (
+          (repo.users || []).map((user) => [
+            repo.name,
+            repo.format,
+            repo.type,
+            user.userId,
+            user.displayName,
+            user.email,
+            user.status,
+            user.isAdmin ? 'yes' : 'no',
+            (user.actions || []).join('; '),
+            (user.roleIds || []).join('; '),
+            (user.privilegeIds || []).join('; '),
+            (user.accessPaths || []).map((path) => `${path.directRole}${path.inheritedRoles?.length ? ` > ${path.inheritedRoles.join(' > ')}` : ''} -> ${path.privilegeId} (${(path.actions || []).join('|')})`).join('; '),
+          ])
+        )),
+      );
+      return;
+    }
     if (permissionView === 'privileges') {
       exportCsv(
         `nexus-privileges-users-${date}.csv`,
@@ -394,9 +476,19 @@ export default function LdapPage({ settings }) {
           {/* OVERVIEW TAB */}
           {tab === 'overview' && (
             <div className="flex flex-col gap-8">
+              {repositoryAccessAudit && (
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                  <StatCard icon="inventory_2" label="Repos With Users" value={repositoryAccessAudit.stats?.repositoriesWithUsers || 0} sub={`of ${repositoryAccessAudit.stats?.repositories || 0}`} />
+                  <StatCard icon="public" label="Wildcard Repos" value={repositoryAccessAudit.stats?.wildcardRepositories || 0} />
+                  <StatCard icon="edit_square" label="Write Users" value={repositoryAccessAudit.stats?.writeCapableUsers || 0} />
+                  <StatCard icon="delete" label="Delete Users" value={repositoryAccessAudit.stats?.deleteCapableUsers || 0} />
+                  <StatCard icon="person_off" label="Inactive With Access" value={repositoryAccessAudit.stats?.inactiveUsersWithAccess || 0} />
+                </div>
+              )}
+
               {/* Profile card */}
               <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border shadow-sm dark:shadow-black/20 p-6 flex items-start gap-6">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent to-primary dark:from-dark-accent dark:to-emerald-500 flex items-center justify-center text-white dark:text-dark-bg text-2xl font-extrabold shrink-0">
+                <div className="w-16 h-16 rounded-2xl bg-accent-dim dark:bg-dark-accent-dim flex items-center justify-center text-accent dark:text-dark-accent text-2xl font-extrabold shrink-0">
                   {(data.user.firstName?.[0] || data.user.userId?.[0] || '?').toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -694,15 +786,21 @@ export default function LdapPage({ settings }) {
           {tab === 'permissions' && permissionAudit && (
             <div className="flex flex-col gap-5">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard icon="inventory_2" label="Repos With Users" value={repositoryAccessAudit?.stats?.repositoriesWithUsers || 0} sub={`of ${repositoryAccessAudit?.stats?.repositories || 0} repositories`} />
+                <StatCard icon="edit_square" label="Write-Capable Users" value={repositoryAccessAudit?.stats?.writeCapableUsers || 0} />
+                <StatCard icon="delete" label="Delete-Capable Users" value={repositoryAccessAudit?.stats?.deleteCapableUsers || 0} />
+                <StatCard icon="person_off" label="Inactive With Access" value={repositoryAccessAudit?.stats?.inactiveUsersWithAccess || 0} />
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard icon="group" label="Mapped Users" value={permissionAudit.stats?.users || 0} sub={`${permissionAudit.stats?.adminUsers || 0} admin`} />
                 <StatCard icon="badge" label="Roles" value={permissionAudit.stats?.roles || 0} />
                 <StatCard icon="key" label="Privileges" value={permissionAudit.stats?.privileges || 0} />
                 <StatCard icon="verified_user" label="Mapping" value={permissionAudit.complete ? 'Full' : 'Partial'} />
               </div>
 
-              {(permissionAudit.warnings || []).length > 0 && (
+              {dedupeStrings([...(permissionAudit.warnings || []), ...(repositoryAccessAudit?.warnings || [])]).length > 0 && (
                 <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 font-medium flex flex-col gap-1">
-                  {(permissionAudit.warnings || []).map((warning) => (
+                  {dedupeStrings([...(permissionAudit.warnings || []), ...(repositoryAccessAudit?.warnings || [])]).map((warning) => (
                     <div key={warning} className="flex items-start gap-2">
                       <span className="material-symbols-outlined text-[17px] mt-0.5">warning</span>
                       <span>{warning}</span>
@@ -714,6 +812,7 @@ export default function LdapPage({ settings }) {
               <div className="flex flex-wrap gap-3 items-center">
                 <div className="flex rounded-xl border border-slate-200 dark:border-dark-border overflow-hidden">
                   {[
+                    ['repositories', 'By Repository', 'inventory_2'],
                     ['roles', 'By Role', 'badge'],
                     ['privileges', 'By Privilege', 'key'],
                     ['users', 'By User', 'person'],
@@ -742,6 +841,19 @@ export default function LdapPage({ settings }) {
                     className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 bg-white dark:bg-dark-surface placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
                   />
                 </div>
+                {permissionView === 'repositories' && (
+                  <select
+                    value={permissionRiskFilter}
+                    onChange={e => setPermissionRiskFilter(e.target.value)}
+                    className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text bg-white dark:bg-dark-surface"
+                  >
+                    <option value="all">All repository access</option>
+                    <option value="wildcard">Wildcard/global</option>
+                    <option value="write">Write-capable</option>
+                    <option value="delete">Delete-capable</option>
+                    <option value="inactive">Inactive users</option>
+                  </select>
+                )}
                 {permissionView === 'privileges' && (
                   <select
                     value={permissionTypeFilter}
@@ -778,7 +890,7 @@ export default function LdapPage({ settings }) {
                   className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border text-sm font-medium text-primary dark:text-dark-text bg-white dark:bg-dark-surface"
                 >
                   <option value="all">All access levels</option>
-                  <option value="admin">{permissionView === 'privileges' ? 'Wildcard/global only' : 'Admin/global only'}</option>
+                  <option value="admin">{permissionView === 'privileges' || permissionView === 'repositories' ? 'Wildcard/global only' : 'Admin/global only'}</option>
                   <option value="standard">Standard only</option>
                 </select>
                 <button
@@ -789,6 +901,111 @@ export default function LdapPage({ settings }) {
                   Export CSV
                 </button>
               </div>
+
+              {permissionView === 'repositories' && (
+                <div className="grid grid-cols-1 gap-4">
+                  {filteredPermissionRepositories.map((repo) => (
+                    <article key={repo.name} className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-100 dark:border-dark-border p-5 flex flex-col gap-4">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="font-extrabold text-primary dark:text-dark-text">{repo.name}</h4>
+                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${FORMAT_COLORS[repo.format] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>{repo.format || 'unknown'}</span>
+                            <Badge label={repo.type || 'repository'} />
+                            {repo.risk?.wildcard && <Badge label="Wildcard / Global" color="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" />}
+                          </div>
+                          {repo.url && <p className="mt-1 max-w-2xl truncate text-xs font-mono text-slate-400 dark:text-dark-text-faint">{repo.url}</p>}
+                        </div>
+                        <div className="grid grid-cols-4 gap-3 text-right">
+                          <div>
+                            <p className="text-xl font-extrabold text-primary dark:text-dark-text leading-none">{(repo.users || []).length}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">users</p>
+                          </div>
+                          <div>
+                            <p className="text-xl font-extrabold text-amber-600 dark:text-amber-300 leading-none">{repo.risk?.writeCapableUsers || 0}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">write</p>
+                          </div>
+                          <div>
+                            <p className="text-xl font-extrabold text-rose-600 dark:text-rose-300 leading-none">{repo.risk?.deleteCapableUsers || 0}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">delete</p>
+                          </div>
+                          <div>
+                            <p className="text-xl font-extrabold text-slate-500 dark:text-dark-text-muted leading-none">{repo.risk?.inactiveUsers || 0}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint">inactive</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {(repo.actions || []).length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-faint mb-1.5">Effective Actions</p>
+                          <ActionPills actions={repo.actions} />
+                        </div>
+                      )}
+
+                      {(repo.users || []).length === 0 ? (
+                        <EmptyState icon="lock" title="No mapped users" sub="No user-to-repository access path was found in the available Nexus role data." />
+                      ) : (
+                        <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-dark-border">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-100 dark:border-dark-border">
+                                <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">User</th>
+                                <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Actions</th>
+                                <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Roles</th>
+                                <th className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant dark:text-dark-text-muted">Why</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(repo.users || []).map((user, i) => (
+                                <tr key={user.userId} className={`border-b border-slate-50 dark:border-dark-border align-top ${i % 2 === 0 ? '' : 'bg-slate-50/30 dark:bg-dark-surface-2/30'}`}>
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-start gap-3">
+                                      <div className="w-9 h-9 rounded-full bg-accent-dim/60 dark:bg-dark-accent-dim flex items-center justify-center text-xs font-extrabold text-primary dark:text-dark-accent shrink-0">
+                                        {(user.displayName?.[0] || user.userId?.[0] || '?').toUpperCase()}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <p className="font-bold text-primary dark:text-dark-text">{user.displayName || user.userId}</p>
+                                          {user.isAdmin && <Badge label="Admin" color="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" />}
+                                          {String(user.status || '').toLowerCase() !== 'active' && <Badge label={user.status || 'inactive'} color="bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300" />}
+                                        </div>
+                                        <p className="text-xs text-on-surface-variant dark:text-dark-text-muted">{user.userId}</p>
+                                        {user.email && <p className="text-xs text-slate-400 dark:text-dark-text-faint truncate">{user.email}</p>}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3"><ActionPills actions={user.actions || []} limit={6} /></td>
+                                  <td className="px-4 py-3"><RolePills roleIds={user.roleIds || []} limit={6} /></td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex flex-col gap-1.5">
+                                      {(user.accessPaths || []).slice(0, 4).map((pathEntry, index) => (
+                                        <div key={`${user.userId}-${pathEntry.privilegeId}-${index}`} className="rounded-lg bg-slate-50 dark:bg-dark-surface-2 px-2.5 py-1.5 text-[11px] text-on-surface-variant dark:text-dark-text-muted">
+                                          <span className="font-bold text-primary dark:text-dark-text">{pathEntry.directRole}</span>
+                                          {(pathEntry.inheritedRoles || []).map((roleId) => (
+                                            <React.Fragment key={roleId}> <span className="text-slate-300 dark:text-dark-text-faint">via</span> <span className="font-bold">{roleId}</span></React.Fragment>
+                                          ))}
+                                          <span className="text-slate-300 dark:text-dark-text-faint"> grants </span>
+                                          <span className="font-mono">{pathEntry.privilegeId}</span>
+                                          {pathEntry.wildcard && <span className="ml-1 text-amber-600 dark:text-amber-300">wildcard</span>}
+                                        </div>
+                                      ))}
+                                      {(user.accessPaths || []).length > 4 && (
+                                        <span className="text-[10px] text-slate-400 dark:text-dark-text-faint">+{user.accessPaths.length - 4} more paths</span>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </article>
+                  ))}
+                  {filteredPermissionRepositories.length === 0 && <EmptyState icon="inventory_2" title="No repositories match" sub="Try a different access search or risk filter." />}
+                </div>
+              )}
 
               {permissionView === 'roles' && (
                 <div className="grid grid-cols-1 gap-3">

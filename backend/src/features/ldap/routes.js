@@ -43,6 +43,14 @@ function isWildcardPrivilege(privilegeId) {
   return value === 'nx-all' || value === 'nexus:*' || value.includes('*');
 }
 
+function hasWriteAction(actions = []) {
+  return normalizeList(actions).some((action) => ['*', 'add', 'edit', 'delete'].includes(String(action).toLowerCase()));
+}
+
+function hasDeleteAction(actions = []) {
+  return normalizeList(actions).some((action) => ['*', 'delete'].includes(String(action).toLowerCase()));
+}
+
 function parseRepositoryPrivilege(privilegeId) {
   const match = String(privilegeId || '').match(/^nx-repository-(view|admin)-([^-]+)-(.+)-([^-]+)$/);
   if (!match) return null;
@@ -196,6 +204,143 @@ function buildPermissionAudit({ users, roles, privileges }) {
   };
 }
 
+function buildRepositoryAccessAudit({ repositories, permissionAudit }) {
+  if (!permissionAudit) return null;
+  const repoList = normalizeList(repositories);
+  const users = normalizeList(permissionAudit.users);
+  const roles = normalizeList(permissionAudit.roles);
+  const privileges = normalizeList(permissionAudit.privileges);
+  const roleMap = new Map(roles.map((role) => [role.id, role]));
+  const privilegeMap = new Map(privileges.map((privilege) => [privilege.id, privilege]));
+  const warnings = [];
+
+  const collectRolePaths = (roleId, path = []) => {
+    if (path.includes(roleId)) {
+      warnings.push(`Role inheritance cycle ignored while building repository access: ${[...path, roleId].join(' -> ')}`);
+      return [];
+    }
+    const role = roleMap.get(roleId);
+    if (!role) {
+      warnings.push(`Missing role reference while building repository access: ${roleId}`);
+      return [];
+    }
+
+    const selfPath = { roleId, path: [...path, roleId] };
+    return [
+      selfPath,
+      ...normalizeList(role.inheritedRoles).flatMap((inheritedRoleId) => collectRolePaths(inheritedRoleId, selfPath.path)),
+    ];
+  };
+
+  const privilegeMatchesRepository = (privilege, repo) => {
+    if (!privilege) return false;
+    if (privilege.isWildcard) return true;
+    if (privilege.type !== 'repository') return false;
+    const privilegeRepo = String(privilege.repository || '').trim();
+    const privilegeFormat = String(privilege.format || '').trim();
+    return (privilegeRepo === '*' || privilegeRepo === repo.name)
+      && (!privilegeFormat || privilegeFormat === '*' || privilegeFormat === repo.format);
+  };
+
+  const repositoriesByName = repoList.map((repo) => {
+    const usersWithAccess = [];
+    const roleIds = new Set();
+    const privilegeIds = new Set();
+    const repoActions = new Set();
+
+    for (const user of users) {
+      const paths = [];
+
+      for (const directRole of normalizeList(user.directRoles)) {
+        for (const rolePath of collectRolePaths(directRole)) {
+          const role = roleMap.get(rolePath.roleId);
+          if (!role) continue;
+          for (const privilegeId of normalizeList(role.directPrivileges)) {
+            const privilege = privilegeMap.get(privilegeId) || normalizePrivilege(null, privilegeId);
+            if (!privilegeMatchesRepository(privilege, repo)) continue;
+            const actions = normalizeList(privilege.actions).length ? normalizeList(privilege.actions) : ['*'];
+            actions.forEach((action) => repoActions.add(action));
+            roleIds.add(role.id);
+            privilegeIds.add(privilege.id);
+            paths.push({
+              directRole,
+              inheritedRoles: rolePath.path.slice(1),
+              privilegeId: privilege.id,
+              actions,
+              wildcard: Boolean(privilege.isWildcard || privilege.repository === '*'),
+            });
+          }
+        }
+      }
+
+      if (user.isAdmin && paths.length === 0) {
+        repoActions.add('*');
+        roleIds.add('nx-admin');
+        privilegeIds.add('nx-all');
+        paths.push({
+          directRole: 'nx-admin',
+          inheritedRoles: [],
+          privilegeId: 'nx-all',
+          actions: ['*'],
+          wildcard: true,
+        });
+      }
+
+      if (paths.length > 0) {
+        const actions = dedupeSorted(paths.flatMap((pathEntry) => pathEntry.actions));
+        usersWithAccess.push({
+          userId: user.userId,
+          displayName: user.displayName,
+          email: user.email,
+          source: user.source,
+          status: user.status,
+          isAdmin: user.isAdmin,
+          actions,
+          roleIds: dedupeSorted(paths.map((pathEntry) => pathEntry.directRole)),
+          privilegeIds: dedupeSorted(paths.map((pathEntry) => pathEntry.privilegeId)),
+          accessPaths: paths,
+        });
+      }
+    }
+
+    const inactiveUsers = usersWithAccess.filter((user) => String(user.status || '').toLowerCase() !== 'active');
+    const writeCapableUsers = usersWithAccess.filter((user) => hasWriteAction(user.actions));
+    const deleteCapableUsers = usersWithAccess.filter((user) => hasDeleteAction(user.actions));
+
+    return {
+      name: repo.name,
+      format: repo.format,
+      type: repo.type,
+      url: repo.url || '',
+      users: usersWithAccess.sort((a, b) => String(a.displayName || a.userId).localeCompare(String(b.displayName || b.userId))),
+      roles: dedupeSorted([...roleIds]),
+      privileges: dedupeSorted([...privilegeIds]),
+      actions: dedupeSorted([...repoActions]),
+      risk: {
+        wildcard: usersWithAccess.some((user) => user.accessPaths.some((pathEntry) => pathEntry.wildcard)),
+        writeCapableUsers: writeCapableUsers.length,
+        deleteCapableUsers: deleteCapableUsers.length,
+        inactiveUsers: inactiveUsers.length,
+      },
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    complete: permissionAudit.complete,
+    warnings: dedupeSorted([...normalizeList(permissionAudit.warnings), ...warnings]),
+    stats: {
+      repositories: repositoriesByName.length,
+      repositoriesWithUsers: repositoriesByName.filter((repo) => repo.users.length > 0).length,
+      wildcardRepositories: repositoriesByName.filter((repo) => repo.risk.wildcard).length,
+      writeCapableUsers: new Set(repositoriesByName.flatMap((repo) => repo.users.filter((user) => hasWriteAction(user.actions)).map((user) => user.userId))).size,
+      deleteCapableUsers: new Set(repositoriesByName.flatMap((repo) => repo.users.filter((user) => hasDeleteAction(user.actions)).map((user) => user.userId))).size,
+      inactiveUsersWithAccess: new Set(repositoriesByName.flatMap((repo) => repo.users.filter((user) => String(user.status || '').toLowerCase() !== 'active').map((user) => user.userId))).size,
+    },
+    repositories: repositoriesByName,
+  };
+}
+
 /**
  * POST /api/ldap/info
  * Body: { nexusUrl, username, password }
@@ -243,6 +388,7 @@ router.post('/info', async (req, res) => {
         'Nexus may cap LDAP/external realm user listings at 100 users; mappings may be incomplete.',
       ]);
     }
+    const repositoryAccessAudit = buildRepositoryAccessAudit({ repositories, permissionAudit });
 
     // Find current user's record in the users list
     const currentUser = allUsers?.find(u => u.userId === username) || null;
@@ -294,6 +440,7 @@ router.post('/info', async (req, res) => {
       allUsers: allUsers || [],
       roleMatrix,
       permissionAudit,
+      repositoryAccessAudit,
       isAdmin,
       canReadUsers:  allUsers  !== null,
       canReadRoles:  allRoles  !== null,
@@ -326,5 +473,6 @@ router.post('/users', async (req, res) => {
 module.exports = router;
 module.exports._private = {
   buildPermissionAudit,
+  buildRepositoryAccessAudit,
   parseRepositoryPrivilege,
 };
