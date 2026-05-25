@@ -1,6 +1,8 @@
 export const OPTIONAL_FIELDS = {
   maven: ['classifier', 'extension'],
   yum: ['directory'],
+  swift: ['directory'],
+  terraform: ['directory'],
   raw: ['directory'],
 };
 

@@ -446,6 +446,10 @@ async function detectArtifact(type, file, extra = {}) {
       return detectSimplePackage(file, 'packageName');
     case 'yum':
       return detectSimplePackage(file, 'packageName');
+    case 'swift':
+      return detectSimplePackage(file, 'packageName');
+    case 'terraform':
+      return detectSimplePackage(file, 'packageName');
     case 'raw':
       return {
         detected: {

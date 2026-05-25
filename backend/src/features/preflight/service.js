@@ -78,7 +78,7 @@ async function runDuplicateCheck({ nexusUrl, username, password, type, repo, det
   }
 
   try {
-    if (type === 'raw' || type === 'yum' || type === 'apt') {
+    if (type === 'raw' || type === 'yum' || type === 'apt' || type === 'swift' || type === 'terraform') {
       if (!path) return { exists: false, matches: [], repo };
       const exists = await checkAssetUrlExists({
         url: `${normalizeBaseUrl(nexusUrl)}/repository/${repo}/${path.replace(/^\/+/, '')}`,

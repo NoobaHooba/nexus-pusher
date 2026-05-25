@@ -210,6 +210,12 @@ export function uploadApt({ nexusUrl, repo, username, password, file, onProgress
 export function uploadHelm({ nexusUrl, repo, username, password, file, onProgress, settings, signal }) {
   return backendUpload({ type: 'helm', nexusUrl, repo, username, password, file, extra: {}, onProgress, settings, signal });
 }
+export function uploadSwift({ nexusUrl, repo, username, password, file, extra, onProgress, settings, signal }) {
+  return backendUpload({ type: 'swift', nexusUrl, repo, username, password, file, extra, onProgress, settings, signal });
+}
+export function uploadTerraform({ nexusUrl, repo, username, password, file, extra, onProgress, settings, signal }) {
+  return backendUpload({ type: 'terraform', nexusUrl, repo, username, password, file, extra, onProgress, settings, signal });
+}
 export function uploadRaw({ nexusUrl, repo, username, password, file, extra, onProgress, settings, signal }) {
   return backendUpload({ type: 'raw', nexusUrl, repo, username, password, file, extra, onProgress, settings, signal });
 }
@@ -225,5 +231,7 @@ export const UPLOADERS = {
   yum:    uploadYum,
   apt:    uploadApt,
   helm:   uploadHelm,
+  swift:  uploadSwift,
+  terraform: uploadTerraform,
   raw:    uploadRaw,
 };

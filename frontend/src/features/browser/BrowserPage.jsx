@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiUrl } from '../../shared/lib/backendApi';
 import { createHttpError, createNetworkError, formatUserError } from '../../shared/lib/errorMessages';
-import { INPUT_LIMITS, sanitizeNumberText, sanitizePackageField, sanitizePath, sanitizeRepositoryName, sanitizeText, sanitizeTrimmed } from '../../shared/lib/inputValidation';
+import { INPUT_LIMITS, sanitizeNumberText, sanitizePackageField, sanitizePath, sanitizeRepositoryName, sanitizeSearchQuery, sanitizeText } from '../../shared/lib/inputValidation';
 import { buildNexusBrowseUrl, rewriteNexusAssetUrls, rewriteNexusUrl } from '../../shared/lib/nexusLinks';
 import {
   applyLocalRefinements,
@@ -38,6 +38,8 @@ const FORMAT_COLORS = {
   docker:  'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
   cargo:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
   conan:   'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+  swift:   'bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300',
+  terraform: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
   pypi:    'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
   nuget:   'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
   helm:    'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
@@ -48,7 +50,7 @@ const FORMAT_COLORS = {
   rubygems:'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
 };
 
-const KNOWN_FORMATS = ['maven2', 'npm', 'docker', 'cargo', 'conan', 'pypi', 'nuget', 'helm', 'yum', 'apt', 'raw'];
+const KNOWN_FORMATS = ['maven2', 'npm', 'docker', 'cargo', 'conan', 'swift', 'terraform', 'pypi', 'nuget', 'helm', 'yum', 'apt', 'raw'];
 
 function formatSize(bytes) {
   if (bytes == null) return '—';
@@ -278,6 +280,7 @@ export default function BrowserPage({ settings }) {
   const [recentSearches, setRecentSearches] = useState(initialSession.recentSearches);
   const [repoFilter, setRepoFilter] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showSearchHelp, setShowSearchHelp] = useState(false);
   const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -312,6 +315,7 @@ export default function BrowserPage({ settings }) {
     setRecentSearches(nextSession.recentSearches);
     setRepoFilter('');
     setShowSuggestions(false);
+    setShowSearchHelp(false);
     setHighlightedSuggestion(-1);
   }, [settings?.nexusUrl, settings?.username]);
 
@@ -500,11 +504,12 @@ export default function BrowserPage({ settings }) {
   }, [results, searchState, localRefinements, effectiveSort]);
 
   const commitSearch = useCallback((value) => {
-    const nextValue = sanitizeTrimmed(value, INPUT_LIMITS.search);
+    const nextValue = sanitizeSearchQuery(value, INPUT_LIMITS.search).trim();
     if (keywordDebounceRef.current) clearTimeout(keywordDebounceRef.current);
     setKeywordInput(nextValue);
     updateSearchState((current) => ({ ...current, keyword: nextValue }));
     setShowSuggestions(false);
+    setShowSearchHelp(false);
     setHighlightedSuggestion(-1);
     if (!nextValue) return;
     setRecentSearches((current) => {
@@ -519,6 +524,7 @@ export default function BrowserPage({ settings }) {
     setKeywordInput('');
     updateSearchState(DEFAULT_SEARCH_STATE);
     setShowSuggestions(false);
+    setShowSearchHelp(false);
     setHighlightedSuggestion(-1);
   }, [updateSearchState]);
 
@@ -534,8 +540,8 @@ export default function BrowserPage({ settings }) {
   const effectiveSearchFormat = selectedRepositoryMeta?.format || searchState.format || '';
   const showGroupFilter = effectiveSearchFormat === 'maven2' || Boolean(searchState.group);
   const searchPlaceholder = showGroupFilter
-    ? 'Search Nexus by keyword, package, group, version...'
-    : 'Search Nexus by keyword, package, version...';
+    ? 'Search packages, groups, "exact phrases", wildcards *'
+    : 'Search packages, versions, "exact phrases", wildcards *';
 
   const updateRepository = useCallback((repository) => {
     const nextRepository = sanitizeRepositoryName(repository);
@@ -809,7 +815,7 @@ export default function BrowserPage({ settings }) {
                     <input
                       value={keywordInput}
                       onChange={(e) => {
-                        setKeywordInput(sanitizeText(e.target.value, INPUT_LIMITS.search));
+                        setKeywordInput(sanitizeSearchQuery(e.target.value, INPUT_LIMITS.search));
                         setShowSuggestions(true);
                         setHighlightedSuggestion(-1);
                       }}
@@ -836,7 +842,7 @@ export default function BrowserPage({ settings }) {
                       }}
                       placeholder={searchPlaceholder}
                       maxLength={INPUT_LIMITS.search}
-                      className="w-full rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface pl-10 pr-10 py-3 text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
+                      className="w-full rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface pl-10 pr-20 py-3 text-sm font-medium text-primary dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/40 placeholder:text-slate-300 dark:placeholder:text-dark-text-faint"
                     />
                     {keywordInput && (
                       <button
@@ -844,10 +850,31 @@ export default function BrowserPage({ settings }) {
                           setKeywordInput('');
                           commitSearch('');
                         }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint hover:text-slate-600 dark:hover:text-dark-text"
+                        className="absolute right-11 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-faint hover:text-slate-600 dark:hover:text-dark-text"
+                        title="Clear search"
                       >
                         <span className="material-symbols-outlined text-[18px]">close</span>
                       </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowSearchHelp((current) => !current)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-bold text-slate-500 transition-colors hover:bg-slate-50 hover:text-primary dark:border-dark-border dark:bg-dark-surface-2 dark:text-dark-text-muted dark:hover:text-dark-text"
+                      title="Search syntax help"
+                      aria-label="Search syntax help"
+                    >
+                      ?
+                    </button>
+                    {showSearchHelp && (
+                      <div className="absolute top-[calc(100%+0.5rem)] right-0 z-30 w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 text-xs shadow-xl dark:border-dark-border dark:bg-dark-surface dark:shadow-black/30">
+                        <p className="font-bold text-primary dark:text-dark-text">Search syntax</p>
+                        <div className="mt-3 flex flex-col gap-2 text-slate-500 dark:text-dark-text-muted">
+                          <p><code className="font-mono text-primary dark:text-dark-text">react router</code> matches both words anywhere.</p>
+                          <p><code className="font-mono text-primary dark:text-dark-text">"react router"</code> matches that exact phrase.</p>
+                          <p><code className="font-mono text-primary dark:text-dark-text">spring*</code> matches names that start with spring.</p>
+                          <p><code className="font-mono text-primary dark:text-dark-text">*.jar</code> matches jar-like paths or filenames.</p>
+                        </div>
+                      </div>
                     )}
                     {showSuggestions && searchSuggestions.length > 0 && (
                       <div className="absolute top-[calc(100%+0.5rem)] left-0 right-0 z-20 overflow-hidden rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-xl dark:shadow-black/30">

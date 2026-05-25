@@ -16,6 +16,12 @@ export const FIELD_MAP = {
   yum: [
     { key: 'directory', label: 'Upload Directory', placeholder: '/7/x86_64/' },
   ],
+  swift: [
+    { key: 'directory', label: 'Upload Directory', placeholder: '/packages/releases/' },
+  ],
+  terraform: [
+    { key: 'directory', label: 'Upload Directory', placeholder: '/modules/acme/network/aws/' },
+  ],
   raw: [
     { key: 'directory', label: 'Upload Directory', placeholder: '/assets/v1/' },
   ],

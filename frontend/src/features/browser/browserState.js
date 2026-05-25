@@ -1,4 +1,4 @@
-import { INPUT_LIMITS, sanitizeNumberText, sanitizeText } from '../../shared/lib/inputValidation';
+import { INPUT_LIMITS, sanitizeNumberText, sanitizeSearchQuery } from '../../shared/lib/inputValidation';
 
 export const MAX_SEARCH_HISTORY = 6;
 export const MAX_SUGGESTIONS = 8;
@@ -70,7 +70,7 @@ const LABELS = {
 };
 
 function normalizeText(value) {
-  return sanitizeText(value, INPUT_LIMITS.search).trim();
+  return sanitizeSearchQuery(value, INPUT_LIMITS.search).trim();
 }
 
 function normalizeNumberText(value) {
@@ -228,8 +228,9 @@ export function saveBrowserSearchStateToUrl(state, mode = 'replace') {
 
 export function buildServerQuery(state) {
   const normalized = normalizeSearchState(state);
+  const parsedKeyword = parseAdvancedSearchQuery(normalized.keyword);
   return {
-    keyword: normalized.keyword,
+    keyword: parsedKeyword.serverKeyword,
     repository: normalized.repository,
     format: normalized.format,
     name: normalized.name,
@@ -242,6 +243,45 @@ export function buildServerQuery(state) {
       classifier: normalized.classifier,
       extension: normalized.extension,
     },
+  };
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function parseAdvancedSearchQuery(value) {
+  const normalized = normalizeText(value);
+  const phrases = [];
+  const wildcards = [];
+  const terms = [];
+  const serverParts = [];
+  const tokenPattern = /"([^"]+)"|(\S+)/g;
+  let match;
+
+  while ((match = tokenPattern.exec(normalized)) !== null) {
+    const rawToken = match[1] || match[2] || '';
+    const token = rawToken.trim().toLowerCase();
+    if (!token || token === '*') continue;
+
+    if (match[1] !== undefined) {
+      phrases.push(token);
+      serverParts.push(token);
+    } else if (token.includes('*')) {
+      wildcards.push(new RegExp(`^${token.split('*').map(escapeRegExp).join('.*')}$`, 'i'));
+      const searchable = token.replace(/\*/g, ' ').trim();
+      if (searchable) serverParts.push(searchable);
+    } else {
+      terms.push(token);
+      serverParts.push(token);
+    }
+  }
+
+  return {
+    terms,
+    phrases,
+    wildcards,
+    serverKeyword: [...new Set(serverParts.join(' ').split(/\s+/).filter(Boolean))].join(' '),
   };
 }
 
@@ -284,12 +324,9 @@ function includesNormalized(candidates, value) {
 }
 
 function matchesKeyword(asset, value) {
-  const tokens = normalizeText(value)
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
+  const { terms, phrases, wildcards } = parseAdvancedSearchQuery(value);
 
-  if (tokens.length === 0) return true;
+  if (terms.length === 0 && phrases.length === 0 && wildcards.length === 0) return true;
 
   const candidates = [
     getAssetName(asset),
@@ -297,6 +334,7 @@ function matchesKeyword(asset, value) {
     asset?.path,
     asset?.group,
     asset?.version,
+    getAssetVersion(asset),
     asset?.repository,
     asset?.format,
     getAssetUploader(asset),
@@ -304,7 +342,10 @@ function matchesKeyword(asset, value) {
     .map((candidate) => String(candidate || '').toLowerCase())
     .filter(Boolean);
 
-  return tokens.every((token) => candidates.some((candidate) => candidate.includes(token)));
+  const searchableText = candidates.join(' ');
+  return terms.every((token) => candidates.some((candidate) => candidate.includes(token)))
+    && phrases.every((phrase) => searchableText.includes(phrase))
+    && wildcards.every((pattern) => candidates.some((candidate) => pattern.test(candidate)));
 }
 
 function matchesGroup(asset, value) {

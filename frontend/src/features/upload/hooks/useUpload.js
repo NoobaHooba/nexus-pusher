@@ -97,10 +97,16 @@ export function useUpload(settings, repoType, repoName, toast) {
   const processingRef = useRef(false);
   const activeUploadAbortersRef = useRef(new Map());
   const activeInspectRequestsRef = useRef(new Map());
+  const inspectDebounceTimersRef = useRef(new Map());
+  const stagedRef = useRef([]);
   const skipPersistPrefsRef = useRef(true);
   const toastRef = useRef(toast);
   const previousRepoType = useRef(repoType);
   toastRef.current = toast;
+
+  useEffect(() => {
+    stagedRef.current = staged;
+  }, [staged]);
 
   useEffect(() => {
     skipPersistPrefsRef.current = true;
@@ -118,6 +124,9 @@ export function useUpload(settings, repoType, repoName, toast) {
   useEffect(() => {
     if (previousRepoType.current !== repoType) {
       previousRepoType.current = repoType;
+      inspectDebounceTimersRef.current.forEach((timer) => clearTimeout(timer));
+      inspectDebounceTimersRef.current.clear();
+      activeInspectRequestsRef.current.clear();
       setStaged([]);
     }
   }, [repoType]);
@@ -227,6 +236,27 @@ export function useUpload(settings, repoType, repoName, toast) {
     }
   }, [prefs, repoName, repoType, settings]);
 
+  const cancelPendingInspection = useCallback((id) => {
+    const timer = inspectDebounceTimersRef.current.get(id);
+    if (timer) clearTimeout(timer);
+    inspectDebounceTimersRef.current.delete(id);
+  }, []);
+
+  const invalidateInspection = useCallback((id) => {
+    activeInspectRequestsRef.current.set(id, (activeInspectRequestsRef.current.get(id) || 0) + 1);
+  }, []);
+
+  const scheduleStagedInspection = useCallback((id) => {
+    cancelPendingInspection(id);
+    const timer = setTimeout(() => {
+      inspectDebounceTimersRef.current.delete(id);
+      const item = stagedRef.current.find((entry) => entry.id === id);
+      if (!item) return;
+      inspectStagedItem(item);
+    }, 450);
+    inspectDebounceTimersRef.current.set(id, timer);
+  }, [cancelPendingInspection, inspectStagedItem]);
+
   const stageFiles = useCallback((files) => {
     const defaults = prefs.lastExtraFieldsByFormat[repoType] || {};
     const newItems = files.map((file) => ({
@@ -252,11 +282,14 @@ export function useUpload(settings, repoType, repoName, toast) {
   }, [inspectStagedItem, prefs.lastExtraFieldsByFormat, repoName, repoType, settings?.defaultRepo]);
 
   const removeStaged = useCallback((id) => {
+    cancelPendingInspection(id);
     activeInspectRequestsRef.current.delete(id);
     setStaged((current) => current.filter((item) => item.id !== id));
-  }, []);
+  }, [cancelPendingInspection]);
 
   const cancelStaged = useCallback(() => {
+    inspectDebounceTimersRef.current.forEach((timer) => clearTimeout(timer));
+    inspectDebounceTimersRef.current.clear();
     activeInspectRequestsRef.current.clear();
     setStaged([]);
   }, []);
@@ -268,10 +301,18 @@ export function useUpload(settings, repoType, repoName, toast) {
   }, [inspectStagedItem, staged]);
 
   const updateStagedExtraFields = useCallback((id, nextExtraFields) => {
-    const item = staged.find((entry) => entry.id === id);
-    if (!item) return;
-    inspectStagedItem({ ...item, extraFields: nextExtraFields }, { extraFields: nextExtraFields });
-  }, [inspectStagedItem, staged]);
+    invalidateInspection(id);
+    setStaged((current) => current.map((entry) => {
+      if (entry.id !== id) return entry;
+      const next = {
+        ...entry,
+        extraFields: { ...(nextExtraFields || {}) },
+        inspectError: '',
+      };
+      return { ...next, reviewStatus: buildReviewStatus(next) };
+    }));
+    scheduleStagedInspection(id);
+  }, [invalidateInspection, scheduleStagedInspection]);
 
   useEffect(() => {
     if (!repoName || staged.length === 0) return;

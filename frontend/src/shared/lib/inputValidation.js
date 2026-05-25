@@ -13,6 +13,7 @@ export const INPUT_LIMITS = {
 };
 
 const DANGEROUS_CHARS = /[<>"'`]/g;
+const DANGEROUS_SEARCH_CHARS = /[<>`]/g;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
 
 export function sanitizeText(value, maxLength = INPUT_LIMITS.search) {
@@ -24,6 +25,13 @@ export function sanitizeText(value, maxLength = INPUT_LIMITS.search) {
 
 export function sanitizeControlText(value, maxLength = INPUT_LIMITS.search) {
   return String(value ?? '').replace(CONTROL_CHARS, '').slice(0, maxLength);
+}
+
+export function sanitizeSearchQuery(value, maxLength = INPUT_LIMITS.search) {
+  return String(value ?? '')
+    .replace(CONTROL_CHARS, '')
+    .replace(DANGEROUS_SEARCH_CHARS, '')
+    .slice(0, maxLength);
 }
 
 export function sanitizeTrimmed(value, maxLength) {

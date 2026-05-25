@@ -42,6 +42,8 @@ const uploaderMap = {
   yum:    yumUploader,
   apt:    aptUploader,
   helm:   helmUploader,
+  swift:  rawUploader,
+  terraform: rawUploader,
   raw:    rawUploader,
 };
 

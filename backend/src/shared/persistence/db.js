@@ -60,24 +60,6 @@ db.exec(`
     artifact_id  TEXT,
     result_url   TEXT
   );
-  CREATE INDEX IF NOT EXISTS idx_uploads_ts       ON uploads(ts DESC);
-  CREATE INDEX IF NOT EXISTS idx_uploads_user_ts  ON uploads(user_id, ts DESC);
-  CREATE INDEX IF NOT EXISTS idx_uploads_username ON uploads(username);
-  CREATE INDEX IF NOT EXISTS idx_uploads_repo     ON uploads(repo);
-  CREATE INDEX IF NOT EXISTS idx_uploads_status   ON uploads(status);
-  CREATE TRIGGER IF NOT EXISTS uploads_require_user_id_insert
-  BEFORE INSERT ON uploads
-  FOR EACH ROW
-  WHEN NEW.user_id IS NULL OR NEW.user_id = ''
-  BEGIN
-    SELECT RAISE(ABORT, 'user_id is required');
-  END;
-  CREATE TRIGGER IF NOT EXISTS uploads_block_update
-  BEFORE UPDATE ON uploads
-  FOR EACH ROW
-  BEGIN
-    SELECT RAISE(ABORT, 'uploads rows are append-only');
-  END;
 `);
 
 const existingColumns = new Set(
@@ -111,6 +93,27 @@ db.prepare(`
     user_id: deriveUserId({ username: row.username, nexusUrl: row.nexus_url }),
   });
 });
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_uploads_ts       ON uploads(ts DESC);
+  CREATE INDEX IF NOT EXISTS idx_uploads_user_ts  ON uploads(user_id, ts DESC);
+  CREATE INDEX IF NOT EXISTS idx_uploads_username ON uploads(username);
+  CREATE INDEX IF NOT EXISTS idx_uploads_repo     ON uploads(repo);
+  CREATE INDEX IF NOT EXISTS idx_uploads_status   ON uploads(status);
+  CREATE TRIGGER IF NOT EXISTS uploads_require_user_id_insert
+  BEFORE INSERT ON uploads
+  FOR EACH ROW
+  WHEN NEW.user_id IS NULL OR NEW.user_id = ''
+  BEGIN
+    SELECT RAISE(ABORT, 'user_id is required');
+  END;
+  CREATE TRIGGER IF NOT EXISTS uploads_block_update
+  BEFORE UPDATE ON uploads
+  FOR EACH ROW
+  BEGIN
+    SELECT RAISE(ABORT, 'uploads rows are append-only');
+  END;
+`);
 
 const insertStmt = db.prepare(`
   INSERT INTO uploads (user_id, ts, username, nexus_url, repo, type, filename, size, status, error, path, version, package_name, artifact_id, result_url)

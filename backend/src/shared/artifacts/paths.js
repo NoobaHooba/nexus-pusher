@@ -44,7 +44,7 @@ function buildArtifactPath(type, fileName, extra = {}, detected = {}) {
     return `${groupPath}/${artifactId}/${version}/${artifactId}-${version}${classifierSuffix}.${ext}`;
   }
 
-  if (type === 'raw' || type === 'yum') {
+  if (type === 'raw' || type === 'yum' || type === 'swift' || type === 'terraform') {
     const rawDir = String(extra.directory || '').replace(/^\/+|\/+$/g, '');
     return [rawDir, fileName].filter(Boolean).join('/');
   }
