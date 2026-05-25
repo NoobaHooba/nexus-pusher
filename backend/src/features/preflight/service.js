@@ -218,5 +218,7 @@ async function buildPreflight({
 
 module.exports = {
   buildPreflight,
+  getRepoFormat,
+  normalizeRepoList,
   runDuplicateCheck,
 };

@@ -202,6 +202,65 @@ NEXUS_BROWSER_URL=http://localhost:8081
 
 In non-production mode, the backend falls back to `backend/data/` if `DATA_DIR` is unset.
 
+### Terminal CLI: `nxp`
+
+Nexus Pusher also includes `nxp`, a direct terminal uploader that reuses the backend artifact inspection and Nexus upload logic without requiring the backend server to be running.
+
+Install it from the backend package during development:
+
+```bash
+cd backend
+npm install
+npm link
+```
+
+Set reusable defaults:
+
+```bash
+nxp config set nexus-url http://localhost:8081
+nxp config set username alice
+nxp config set repo.maven maven-releases
+nxp config set repo.raw raw-hosted
+nxp config set docker-registry localhost:5000
+```
+
+The CLI config file is written to `$XDG_CONFIG_HOME/nexus-pusher/nxp.json`, or `~/.config/nexus-pusher/nxp.json` when `XDG_CONFIG_HOME` is unset. The file is created with `0600` permissions. Passwords are intentionally not saved; prefer `NXP_PASSWORD` or `--password-stdin` instead of putting secrets in shell history.
+
+Useful examples:
+
+```bash
+nxp upload maven ./target/app-1.2.3.jar --repo maven-releases --group-id com.example
+nxp upload raw ./build/report.zip --repo raw-hosted --directory reports/nightly
+nxp upload npm ./pkg/example-1.0.0.tgz --repo npm-hosted
+nxp upload docker ./image.tar --repo docker-hosted --registry registry.example.com --image my/team/app --tag 1.2.3
+printf '%s\n' "$NEXUS_PASSWORD" | nxp upload pypi ./dist/pkg-1.0.0.whl --repo pypi-hosted --password-stdin
+```
+
+Inspection and discovery commands:
+
+```bash
+nxp preflight maven ./target/app-1.2.3.jar --repo maven-releases
+nxp repos --type maven
+```
+
+Credential and default resolution order:
+
+1. CLI flags such as `--nexus-url`, `--username`, `--password`, and `--repo`
+2. Environment variables: `NXP_NEXUS_URL`, `NXP_USERNAME`, `NXP_PASSWORD`, `NXP_REPO`, `NXP_DOCKER_REGISTRY`
+3. `nxp config`
+4. Anonymous Nexus access, when the repository permits it
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | all requested uploads succeeded |
+| 1 | validation or config error |
+| 2 | upload failure |
+| 3 | duplicate found with `--fail-on-duplicate` |
+| 4 | partial success |
+| 130 | interrupted |
+
 ## Docker Compose Workflow
 
 Bring up the stack:
